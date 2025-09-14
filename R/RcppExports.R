@@ -5,66 +5,66 @@
 NULL
 
 grad_ls_loss <- function(x, y, param, p) {
-    .Call(`_mtool_grad_ls_loss`, x, y, param, p)
+    .Call('_cbSCRIP_grad_ls_loss', PACKAGE = 'cbSCRIP', x, y, param, p)
 }
 
 grad_logistic_loss <- function(x, y, param, p) {
-    .Call(`_mtool_grad_logistic_loss`, x, y, param, p)
+    .Call('_cbSCRIP_grad_logistic_loss', PACKAGE = 'cbSCRIP', x, y, param, p)
 }
 
 grad_multinom_loss <- function(x, y, K, offset, param, p) {
-    .Call(`_mtool_grad_multinom_loss`, x, y, K, offset, param, p)
+    .Call('_cbSCRIP_grad_multinom_loss', PACKAGE = 'cbSCRIP', x, y, K, offset, param, p)
 }
 
 mtool <- function(X, Y, wt, K, reg_p, nk_vec, task_rowid, loss, penalty, regul, transpose, grp_id, etaG, grp, grpV, own_var, N_own_var, lam1, lam2, lam3, learning_rate, tolerance, niter_inner, maxit, ncores) {
-    .Call(`_mtool_mtool`, X, Y, wt, K, reg_p, nk_vec, task_rowid, loss, penalty, regul, transpose, grp_id, etaG, grp, grpV, own_var, N_own_var, lam1, lam2, lam3, learning_rate, tolerance, niter_inner, maxit, ncores)
+    .Call('_cbSCRIP_mtool', PACKAGE = 'cbSCRIP', X, Y, wt, K, reg_p, nk_vec, task_rowid, loss, penalty, regul, transpose, grp_id, etaG, grp, grpV, own_var, N_own_var, lam1, lam2, lam3, learning_rate, tolerance, niter_inner, maxit, ncores)
 }
 
 MultinomLogistic <- function(X, Y, offset, K, reg_p, penalty, regul, transpose, grp_id, etaG, grp, grpV, own_var, N_own_var, lam1, lam2, lam3, learning_rate, tolerance, niter_inner, maxit, ncores) {
-    .Call(`_mtool_MultinomLogistic`, X, Y, offset, K, reg_p, penalty, regul, transpose, grp_id, etaG, grp, grpV, own_var, N_own_var, lam1, lam2, lam3, learning_rate, tolerance, niter_inner, maxit, ncores)
+    .Call('_cbSCRIP_MultinomLogistic', PACKAGE = 'cbSCRIP', X, Y, offset, K, reg_p, penalty, regul, transpose, grp_id, etaG, grp, grpV, own_var, N_own_var, lam1, lam2, lam3, learning_rate, tolerance, niter_inner, maxit, ncores)
 }
 
 scalar_scad_prox <- function(val, lambda, a) {
-    .Call(`_mtool_scalar_scad_prox`, val, lambda, a)
+    .Call('_cbSCRIP_scalar_scad_prox', PACKAGE = 'cbSCRIP', val, lambda, a)
 }
 
 proximalSCAD <- function(U, lam1, a_scad = 3.7, pos = FALSE) {
-    invisible(.Call(`_mtool_proximalSCAD`, U, lam1, a_scad, pos))
+    invisible(.Call('_cbSCRIP_proximalSCAD', PACKAGE = 'cbSCRIP', U, lam1, a_scad, pos))
 }
 
 grad_ls_loss2 <- function(x, y, param, p) {
-    .Call(`_mtool_grad_ls_loss2`, x, y, param, p)
+    .Call('_cbSCRIP_grad_ls_loss2', PACKAGE = 'cbSCRIP', x, y, param, p)
 }
 
 grad_logistic_loss2 <- function(x, y, param, p) {
-    .Call(`_mtool_grad_logistic_loss2`, x, y, param, p)
+    .Call('_cbSCRIP_grad_logistic_loss2', PACKAGE = 'cbSCRIP', x, y, param, p)
 }
 
 grad_multinom_loss2 <- function(x, y, K, offset, param, p, grad_out) {
-    invisible(.Call(`_mtool_grad_multinom_loss2`, x, y, K, offset, param, p, grad_out))
+    invisible(.Call('_cbSCRIP_grad_multinom_loss2', PACKAGE = 'cbSCRIP', x, y, K, offset, param, p, grad_out))
 }
 
 MultinomLogistic2 <- function(X, Y, offset, K, reg_p, penalty, regul, transpose, grp_id, etaG, grp, grpV, own_var, N_own_var, lam1, lam2, lam3, learning_rate, tolerance, niter_inner, maxit, ncores, verbose = FALSE, param_start = NULL) {
-    .Call(`_mtool_MultinomLogistic2`, X, Y, offset, K, reg_p, penalty, regul, transpose, grp_id, etaG, grp, grpV, own_var, N_own_var, lam1, lam2, lam3, learning_rate, tolerance, niter_inner, maxit, ncores, verbose, param_start)
+    .Call('_cbSCRIP_MultinomLogistic2', PACKAGE = 'cbSCRIP', X, Y, offset, K, reg_p, penalty, regul, transpose, grp_id, etaG, grp, grpV, own_var, N_own_var, lam1, lam2, lam3, learning_rate, tolerance, niter_inner, maxit, ncores, verbose, param_start)
 }
 
 MultinomLogisticExp <- function(X, Y, offset, K, reg_p, penalty, regul, transpose, grp_id, etaG, grp, grpV, own_var, N_own_var, lam1, lam2, lam3, learning_rate, tolerance, niter_inner, maxit, ncores) {
-    .Call(`_mtool_MultinomLogisticExp`, X, Y, offset, K, reg_p, penalty, regul, transpose, grp_id, etaG, grp, grpV, own_var, N_own_var, lam1, lam2, lam3, learning_rate, tolerance, niter_inner, maxit, ncores)
+    .Call('_cbSCRIP_MultinomLogisticExp', PACKAGE = 'cbSCRIP', X, Y, offset, K, reg_p, penalty, regul, transpose, grp_id, etaG, grp, grpV, own_var, N_own_var, lam1, lam2, lam3, learning_rate, tolerance, niter_inner, maxit, ncores)
 }
 
-MultinomLogisticAcc <- function(X, Y, offset, K, reg_p, penalty, regul, transpose, grp_id, etaG, grp, grpV, own_var, N_own_var, lam1, lam2, lam3, learning_rate, momentum_gamma, tolerance, niter_inner, maxit, ncores, pos = FALSE, verbose = FALSE, add_intercept = TRUE, param_start = NULL) {
-    .Call(`_mtool_MultinomLogisticAcc`, X, Y, offset, K, reg_p, penalty, regul, transpose, grp_id, etaG, grp, grpV, own_var, N_own_var, lam1, lam2, lam3, learning_rate, momentum_gamma, tolerance, niter_inner, maxit, ncores, pos, verbose, add_intercept, param_start)
+MultinomLogisticAcc <- function(X, Y, offset, K, reg_p, penalty, regul, transpose, grp_id, etaG, grp, grpV, own_var, N_own_var, lam1, lam2, lam3, learning_rate, momentum_gamma, tolerance, niter_inner, maxit, ncores = 4L, pos = FALSE, verbose = FALSE, add_intercept = TRUE, param_start = NULL) {
+    .Call('_cbSCRIP_MultinomLogisticAcc', PACKAGE = 'cbSCRIP', X, Y, offset, K, reg_p, penalty, regul, transpose, grp_id, etaG, grp, grpV, own_var, N_own_var, lam1, lam2, lam3, learning_rate, momentum_gamma, tolerance, niter_inner, maxit, ncores, pos, verbose, add_intercept, param_start)
 }
 
 MultinomLogisticSARAH <- function(X, Y, offset, K, reg_p, penalty, regul, transpose, grp_id, etaG, grp, grpV, own_var, N_own_var, lam1, lam2, lam3, learning_rate, tolerance, niter_inner, maxit, ncores) {
-    .Call(`_mtool_MultinomLogisticSARAH`, X, Y, offset, K, reg_p, penalty, regul, transpose, grp_id, etaG, grp, grpV, own_var, N_own_var, lam1, lam2, lam3, learning_rate, tolerance, niter_inner, maxit, ncores)
+    .Call('_cbSCRIP_MultinomLogisticSARAH', PACKAGE = 'cbSCRIP', X, Y, offset, K, reg_p, penalty, regul, transpose, grp_id, etaG, grp, grpV, own_var, N_own_var, lam1, lam2, lam3, learning_rate, tolerance, niter_inner, maxit, ncores)
 }
 
 MultinomLogisticPCD <- function(X, Y, offset_vec, K_classes, reg_p, penalty_code, regul, transpose, grp_id, etaG, grp_mat, grpV_mat, own_var, N_own_var, lam1, lam2, lam3, learning_rate, tolerance, maxit, ncores, pos = FALSE) {
-    .Call(`_mtool_MultinomLogisticPCD`, X, Y, offset_vec, K_classes, reg_p, penalty_code, regul, transpose, grp_id, etaG, grp_mat, grpV_mat, own_var, N_own_var, lam1, lam2, lam3, learning_rate, tolerance, maxit, ncores, pos)
+    .Call('_cbSCRIP_MultinomLogisticPCD', PACKAGE = 'cbSCRIP', X, Y, offset_vec, K_classes, reg_p, penalty_code, regul, transpose, grp_id, etaG, grp_mat, grpV_mat, own_var, N_own_var, lam1, lam2, lam3, learning_rate, tolerance, maxit, ncores, pos)
 }
 
 MultinomLogisticCCD <- function(X, Y, offset_vec, K_classes, reg_p, penalty_code, regul, transpose_prox_input, grp_id, etaG, grp_mat, grpV_mat, own_var, N_own_var, lam1, lam2, lam3, learning_rate_scale, tolerance, kkt_abs_check_tol, maxit, max_ccd_passes_active_set, ncores, pos) {
-    .Call(`_mtool_MultinomLogisticCCD`, X, Y, offset_vec, K_classes, reg_p, penalty_code, regul, transpose_prox_input, grp_id, etaG, grp_mat, grpV_mat, own_var, N_own_var, lam1, lam2, lam3, learning_rate_scale, tolerance, kkt_abs_check_tol, maxit, max_ccd_passes_active_set, ncores, pos)
+    .Call('_cbSCRIP_MultinomLogisticCCD', PACKAGE = 'cbSCRIP', X, Y, offset_vec, K_classes, reg_p, penalty_code, regul, transpose_prox_input, grp_id, etaG, grp_mat, grpV_mat, own_var, N_own_var, lam1, lam2, lam3, learning_rate_scale, tolerance, kkt_abs_check_tol, maxit, max_ccd_passes_active_set, ncores, pos)
 }
 

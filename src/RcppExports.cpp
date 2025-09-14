@@ -13,7 +13,7 @@ Rcpp::Rostream<false>& Rcpp::Rcerr = Rcpp::Rcpp_cerr_get();
 
 // grad_ls_loss
 arma::vec grad_ls_loss(arma::rowvec& x, double& y, arma::vec& param, int& p);
-RcppExport SEXP _mtool_grad_ls_loss(SEXP xSEXP, SEXP ySEXP, SEXP paramSEXP, SEXP pSEXP) {
+RcppExport SEXP _cbSCRIP_grad_ls_loss(SEXP xSEXP, SEXP ySEXP, SEXP paramSEXP, SEXP pSEXP) {
 BEGIN_RCPP
     Rcpp::RObject rcpp_result_gen;
     Rcpp::RNGScope rcpp_rngScope_gen;
@@ -27,7 +27,7 @@ END_RCPP
 }
 // grad_logistic_loss
 arma::vec grad_logistic_loss(arma::rowvec& x, double& y, arma::vec& param, int& p);
-RcppExport SEXP _mtool_grad_logistic_loss(SEXP xSEXP, SEXP ySEXP, SEXP paramSEXP, SEXP pSEXP) {
+RcppExport SEXP _cbSCRIP_grad_logistic_loss(SEXP xSEXP, SEXP ySEXP, SEXP paramSEXP, SEXP pSEXP) {
 BEGIN_RCPP
     Rcpp::RObject rcpp_result_gen;
     Rcpp::RNGScope rcpp_rngScope_gen;
@@ -41,7 +41,7 @@ END_RCPP
 }
 // grad_multinom_loss
 arma::mat grad_multinom_loss(arma::rowvec& x, int& y, int& K, double& offset, arma::mat& param, int& p);
-RcppExport SEXP _mtool_grad_multinom_loss(SEXP xSEXP, SEXP ySEXP, SEXP KSEXP, SEXP offsetSEXP, SEXP paramSEXP, SEXP pSEXP) {
+RcppExport SEXP _cbSCRIP_grad_multinom_loss(SEXP xSEXP, SEXP ySEXP, SEXP KSEXP, SEXP offsetSEXP, SEXP paramSEXP, SEXP pSEXP) {
 BEGIN_RCPP
     Rcpp::RObject rcpp_result_gen;
     Rcpp::RNGScope rcpp_rngScope_gen;
@@ -57,7 +57,7 @@ END_RCPP
 }
 // mtool
 Rcpp::List mtool(arma::mat X, arma::mat Y, arma::vec wt, int K, int reg_p, arma::vec nk_vec, arma::vec task_rowid, int loss, int penalty, std::string regul, bool transpose, Rcpp::IntegerVector grp_id, Rcpp::NumericVector etaG, arma::mat grp, arma::mat grpV, Rcpp::IntegerVector own_var, Rcpp::IntegerVector N_own_var, double lam1, double lam2, double lam3, double learning_rate, double tolerance, int niter_inner, int maxit, int ncores);
-RcppExport SEXP _mtool_mtool(SEXP XSEXP, SEXP YSEXP, SEXP wtSEXP, SEXP KSEXP, SEXP reg_pSEXP, SEXP nk_vecSEXP, SEXP task_rowidSEXP, SEXP lossSEXP, SEXP penaltySEXP, SEXP regulSEXP, SEXP transposeSEXP, SEXP grp_idSEXP, SEXP etaGSEXP, SEXP grpSEXP, SEXP grpVSEXP, SEXP own_varSEXP, SEXP N_own_varSEXP, SEXP lam1SEXP, SEXP lam2SEXP, SEXP lam3SEXP, SEXP learning_rateSEXP, SEXP toleranceSEXP, SEXP niter_innerSEXP, SEXP maxitSEXP, SEXP ncoresSEXP) {
+RcppExport SEXP _cbSCRIP_mtool(SEXP XSEXP, SEXP YSEXP, SEXP wtSEXP, SEXP KSEXP, SEXP reg_pSEXP, SEXP nk_vecSEXP, SEXP task_rowidSEXP, SEXP lossSEXP, SEXP penaltySEXP, SEXP regulSEXP, SEXP transposeSEXP, SEXP grp_idSEXP, SEXP etaGSEXP, SEXP grpSEXP, SEXP grpVSEXP, SEXP own_varSEXP, SEXP N_own_varSEXP, SEXP lam1SEXP, SEXP lam2SEXP, SEXP lam3SEXP, SEXP learning_rateSEXP, SEXP toleranceSEXP, SEXP niter_innerSEXP, SEXP maxitSEXP, SEXP ncoresSEXP) {
 BEGIN_RCPP
     Rcpp::RObject rcpp_result_gen;
     Rcpp::RNGScope rcpp_rngScope_gen;
@@ -92,7 +92,7 @@ END_RCPP
 }
 // MultinomLogistic
 Rcpp::List MultinomLogistic(arma::mat X, arma::vec Y, arma::vec offset, int K, int reg_p, int penalty, std::string regul, bool transpose, Rcpp::IntegerVector grp_id, Rcpp::NumericVector etaG, arma::mat grp, arma::mat grpV, Rcpp::IntegerVector own_var, Rcpp::IntegerVector N_own_var, double lam1, double lam2, double lam3, double learning_rate, double tolerance, int niter_inner, int maxit, int ncores);
-RcppExport SEXP _mtool_MultinomLogistic(SEXP XSEXP, SEXP YSEXP, SEXP offsetSEXP, SEXP KSEXP, SEXP reg_pSEXP, SEXP penaltySEXP, SEXP regulSEXP, SEXP transposeSEXP, SEXP grp_idSEXP, SEXP etaGSEXP, SEXP grpSEXP, SEXP grpVSEXP, SEXP own_varSEXP, SEXP N_own_varSEXP, SEXP lam1SEXP, SEXP lam2SEXP, SEXP lam3SEXP, SEXP learning_rateSEXP, SEXP toleranceSEXP, SEXP niter_innerSEXP, SEXP maxitSEXP, SEXP ncoresSEXP) {
+RcppExport SEXP _cbSCRIP_MultinomLogistic(SEXP XSEXP, SEXP YSEXP, SEXP offsetSEXP, SEXP KSEXP, SEXP reg_pSEXP, SEXP penaltySEXP, SEXP regulSEXP, SEXP transposeSEXP, SEXP grp_idSEXP, SEXP etaGSEXP, SEXP grpSEXP, SEXP grpVSEXP, SEXP own_varSEXP, SEXP N_own_varSEXP, SEXP lam1SEXP, SEXP lam2SEXP, SEXP lam3SEXP, SEXP learning_rateSEXP, SEXP toleranceSEXP, SEXP niter_innerSEXP, SEXP maxitSEXP, SEXP ncoresSEXP) {
 BEGIN_RCPP
     Rcpp::RObject rcpp_result_gen;
     Rcpp::RNGScope rcpp_rngScope_gen;
@@ -124,7 +124,7 @@ END_RCPP
 }
 // scalar_scad_prox
 double scalar_scad_prox(double val, double lambda, double a);
-RcppExport SEXP _mtool_scalar_scad_prox(SEXP valSEXP, SEXP lambdaSEXP, SEXP aSEXP) {
+RcppExport SEXP _cbSCRIP_scalar_scad_prox(SEXP valSEXP, SEXP lambdaSEXP, SEXP aSEXP) {
 BEGIN_RCPP
     Rcpp::RObject rcpp_result_gen;
     Rcpp::RNGScope rcpp_rngScope_gen;
@@ -137,7 +137,7 @@ END_RCPP
 }
 // proximalSCAD
 void proximalSCAD(arma::mat& U, double lam1, double a_scad, bool pos);
-RcppExport SEXP _mtool_proximalSCAD(SEXP USEXP, SEXP lam1SEXP, SEXP a_scadSEXP, SEXP posSEXP) {
+RcppExport SEXP _cbSCRIP_proximalSCAD(SEXP USEXP, SEXP lam1SEXP, SEXP a_scadSEXP, SEXP posSEXP) {
 BEGIN_RCPP
     Rcpp::RNGScope rcpp_rngScope_gen;
     Rcpp::traits::input_parameter< arma::mat& >::type U(USEXP);
@@ -150,7 +150,7 @@ END_RCPP
 }
 // grad_ls_loss2
 arma::vec grad_ls_loss2(arma::rowvec& x, double& y, arma::vec& param, int& p);
-RcppExport SEXP _mtool_grad_ls_loss2(SEXP xSEXP, SEXP ySEXP, SEXP paramSEXP, SEXP pSEXP) {
+RcppExport SEXP _cbSCRIP_grad_ls_loss2(SEXP xSEXP, SEXP ySEXP, SEXP paramSEXP, SEXP pSEXP) {
 BEGIN_RCPP
     Rcpp::RObject rcpp_result_gen;
     Rcpp::RNGScope rcpp_rngScope_gen;
@@ -164,7 +164,7 @@ END_RCPP
 }
 // grad_logistic_loss2
 arma::vec grad_logistic_loss2(arma::rowvec& x, double& y, arma::vec& param, int& p);
-RcppExport SEXP _mtool_grad_logistic_loss2(SEXP xSEXP, SEXP ySEXP, SEXP paramSEXP, SEXP pSEXP) {
+RcppExport SEXP _cbSCRIP_grad_logistic_loss2(SEXP xSEXP, SEXP ySEXP, SEXP paramSEXP, SEXP pSEXP) {
 BEGIN_RCPP
     Rcpp::RObject rcpp_result_gen;
     Rcpp::RNGScope rcpp_rngScope_gen;
@@ -178,7 +178,7 @@ END_RCPP
 }
 // grad_multinom_loss2
 void grad_multinom_loss2(const arma::rowvec& x, int y, int K, double offset, const arma::mat& param, int p, arma::mat& grad_out);
-RcppExport SEXP _mtool_grad_multinom_loss2(SEXP xSEXP, SEXP ySEXP, SEXP KSEXP, SEXP offsetSEXP, SEXP paramSEXP, SEXP pSEXP, SEXP grad_outSEXP) {
+RcppExport SEXP _cbSCRIP_grad_multinom_loss2(SEXP xSEXP, SEXP ySEXP, SEXP KSEXP, SEXP offsetSEXP, SEXP paramSEXP, SEXP pSEXP, SEXP grad_outSEXP) {
 BEGIN_RCPP
     Rcpp::RNGScope rcpp_rngScope_gen;
     Rcpp::traits::input_parameter< const arma::rowvec& >::type x(xSEXP);
@@ -194,7 +194,7 @@ END_RCPP
 }
 // MultinomLogistic2
 Rcpp::List MultinomLogistic2(arma::mat X, arma::vec Y, arma::vec offset, int K, int reg_p, int penalty, std::string regul, bool transpose, Rcpp::IntegerVector grp_id, Rcpp::NumericVector etaG, arma::mat grp, arma::mat grpV, Rcpp::IntegerVector own_var, Rcpp::IntegerVector N_own_var, double lam1, double lam2, double lam3, double learning_rate, double tolerance, int niter_inner, int maxit, int ncores, bool verbose, Rcpp::Nullable<Rcpp::NumericMatrix> param_start);
-RcppExport SEXP _mtool_MultinomLogistic2(SEXP XSEXP, SEXP YSEXP, SEXP offsetSEXP, SEXP KSEXP, SEXP reg_pSEXP, SEXP penaltySEXP, SEXP regulSEXP, SEXP transposeSEXP, SEXP grp_idSEXP, SEXP etaGSEXP, SEXP grpSEXP, SEXP grpVSEXP, SEXP own_varSEXP, SEXP N_own_varSEXP, SEXP lam1SEXP, SEXP lam2SEXP, SEXP lam3SEXP, SEXP learning_rateSEXP, SEXP toleranceSEXP, SEXP niter_innerSEXP, SEXP maxitSEXP, SEXP ncoresSEXP, SEXP verboseSEXP, SEXP param_startSEXP) {
+RcppExport SEXP _cbSCRIP_MultinomLogistic2(SEXP XSEXP, SEXP YSEXP, SEXP offsetSEXP, SEXP KSEXP, SEXP reg_pSEXP, SEXP penaltySEXP, SEXP regulSEXP, SEXP transposeSEXP, SEXP grp_idSEXP, SEXP etaGSEXP, SEXP grpSEXP, SEXP grpVSEXP, SEXP own_varSEXP, SEXP N_own_varSEXP, SEXP lam1SEXP, SEXP lam2SEXP, SEXP lam3SEXP, SEXP learning_rateSEXP, SEXP toleranceSEXP, SEXP niter_innerSEXP, SEXP maxitSEXP, SEXP ncoresSEXP, SEXP verboseSEXP, SEXP param_startSEXP) {
 BEGIN_RCPP
     Rcpp::RObject rcpp_result_gen;
     Rcpp::RNGScope rcpp_rngScope_gen;
@@ -228,7 +228,7 @@ END_RCPP
 }
 // MultinomLogisticExp
 Rcpp::List MultinomLogisticExp(arma::mat X, arma::vec Y, arma::vec offset, int K, int reg_p, int penalty, std::string regul, bool transpose, Rcpp::IntegerVector grp_id, Rcpp::NumericVector etaG, arma::mat grp, arma::mat grpV, Rcpp::IntegerVector own_var, Rcpp::IntegerVector N_own_var, double lam1, double lam2, double lam3, double learning_rate, double tolerance, int niter_inner, int maxit, int ncores);
-RcppExport SEXP _mtool_MultinomLogisticExp(SEXP XSEXP, SEXP YSEXP, SEXP offsetSEXP, SEXP KSEXP, SEXP reg_pSEXP, SEXP penaltySEXP, SEXP regulSEXP, SEXP transposeSEXP, SEXP grp_idSEXP, SEXP etaGSEXP, SEXP grpSEXP, SEXP grpVSEXP, SEXP own_varSEXP, SEXP N_own_varSEXP, SEXP lam1SEXP, SEXP lam2SEXP, SEXP lam3SEXP, SEXP learning_rateSEXP, SEXP toleranceSEXP, SEXP niter_innerSEXP, SEXP maxitSEXP, SEXP ncoresSEXP) {
+RcppExport SEXP _cbSCRIP_MultinomLogisticExp(SEXP XSEXP, SEXP YSEXP, SEXP offsetSEXP, SEXP KSEXP, SEXP reg_pSEXP, SEXP penaltySEXP, SEXP regulSEXP, SEXP transposeSEXP, SEXP grp_idSEXP, SEXP etaGSEXP, SEXP grpSEXP, SEXP grpVSEXP, SEXP own_varSEXP, SEXP N_own_varSEXP, SEXP lam1SEXP, SEXP lam2SEXP, SEXP lam3SEXP, SEXP learning_rateSEXP, SEXP toleranceSEXP, SEXP niter_innerSEXP, SEXP maxitSEXP, SEXP ncoresSEXP) {
 BEGIN_RCPP
     Rcpp::RObject rcpp_result_gen;
     Rcpp::RNGScope rcpp_rngScope_gen;
@@ -260,7 +260,7 @@ END_RCPP
 }
 // MultinomLogisticAcc
 Rcpp::List MultinomLogisticAcc(const arma::mat& X, const arma::vec& Y, const arma::vec& offset, int K, int reg_p, int penalty, std::string regul, bool transpose, Rcpp::IntegerVector grp_id, Rcpp::NumericVector etaG, const arma::mat& grp, const arma::mat& grpV, Rcpp::IntegerVector own_var, Rcpp::IntegerVector N_own_var, double lam1, double lam2, double lam3, double learning_rate, double momentum_gamma, double tolerance, int niter_inner, int maxit, int ncores, bool pos, bool verbose, bool add_intercept, Rcpp::Nullable<Rcpp::NumericMatrix> param_start);
-RcppExport SEXP _mtool_MultinomLogisticAcc(SEXP XSEXP, SEXP YSEXP, SEXP offsetSEXP, SEXP KSEXP, SEXP reg_pSEXP, SEXP penaltySEXP, SEXP regulSEXP, SEXP transposeSEXP, SEXP grp_idSEXP, SEXP etaGSEXP, SEXP grpSEXP, SEXP grpVSEXP, SEXP own_varSEXP, SEXP N_own_varSEXP, SEXP lam1SEXP, SEXP lam2SEXP, SEXP lam3SEXP, SEXP learning_rateSEXP, SEXP momentum_gammaSEXP, SEXP toleranceSEXP, SEXP niter_innerSEXP, SEXP maxitSEXP, SEXP ncoresSEXP, SEXP posSEXP, SEXP verboseSEXP, SEXP add_interceptSEXP, SEXP param_startSEXP) {
+RcppExport SEXP _cbSCRIP_MultinomLogisticAcc(SEXP XSEXP, SEXP YSEXP, SEXP offsetSEXP, SEXP KSEXP, SEXP reg_pSEXP, SEXP penaltySEXP, SEXP regulSEXP, SEXP transposeSEXP, SEXP grp_idSEXP, SEXP etaGSEXP, SEXP grpSEXP, SEXP grpVSEXP, SEXP own_varSEXP, SEXP N_own_varSEXP, SEXP lam1SEXP, SEXP lam2SEXP, SEXP lam3SEXP, SEXP learning_rateSEXP, SEXP momentum_gammaSEXP, SEXP toleranceSEXP, SEXP niter_innerSEXP, SEXP maxitSEXP, SEXP ncoresSEXP, SEXP posSEXP, SEXP verboseSEXP, SEXP add_interceptSEXP, SEXP param_startSEXP) {
 BEGIN_RCPP
     Rcpp::RObject rcpp_result_gen;
     Rcpp::RNGScope rcpp_rngScope_gen;
@@ -297,7 +297,7 @@ END_RCPP
 }
 // MultinomLogisticSARAH
 Rcpp::List MultinomLogisticSARAH(arma::mat X, arma::vec Y, arma::vec offset, int K, int reg_p, int penalty, std::string regul, bool transpose, Rcpp::IntegerVector grp_id, Rcpp::NumericVector etaG, arma::mat grp, arma::mat grpV, Rcpp::IntegerVector own_var, Rcpp::IntegerVector N_own_var, double lam1, double lam2, double lam3, double learning_rate, double tolerance, int niter_inner, int maxit, int ncores);
-RcppExport SEXP _mtool_MultinomLogisticSARAH(SEXP XSEXP, SEXP YSEXP, SEXP offsetSEXP, SEXP KSEXP, SEXP reg_pSEXP, SEXP penaltySEXP, SEXP regulSEXP, SEXP transposeSEXP, SEXP grp_idSEXP, SEXP etaGSEXP, SEXP grpSEXP, SEXP grpVSEXP, SEXP own_varSEXP, SEXP N_own_varSEXP, SEXP lam1SEXP, SEXP lam2SEXP, SEXP lam3SEXP, SEXP learning_rateSEXP, SEXP toleranceSEXP, SEXP niter_innerSEXP, SEXP maxitSEXP, SEXP ncoresSEXP) {
+RcppExport SEXP _cbSCRIP_MultinomLogisticSARAH(SEXP XSEXP, SEXP YSEXP, SEXP offsetSEXP, SEXP KSEXP, SEXP reg_pSEXP, SEXP penaltySEXP, SEXP regulSEXP, SEXP transposeSEXP, SEXP grp_idSEXP, SEXP etaGSEXP, SEXP grpSEXP, SEXP grpVSEXP, SEXP own_varSEXP, SEXP N_own_varSEXP, SEXP lam1SEXP, SEXP lam2SEXP, SEXP lam3SEXP, SEXP learning_rateSEXP, SEXP toleranceSEXP, SEXP niter_innerSEXP, SEXP maxitSEXP, SEXP ncoresSEXP) {
 BEGIN_RCPP
     Rcpp::RObject rcpp_result_gen;
     Rcpp::RNGScope rcpp_rngScope_gen;
@@ -329,7 +329,7 @@ END_RCPP
 }
 // MultinomLogisticPCD
 Rcpp::List MultinomLogisticPCD(arma::mat X, arma::vec Y, arma::vec offset_vec, int K_classes, int reg_p, int penalty_code, std::string regul, bool transpose, Rcpp::IntegerVector grp_id, Rcpp::NumericVector etaG, arma::mat grp_mat, arma::mat grpV_mat, Rcpp::IntegerVector own_var, Rcpp::IntegerVector N_own_var, double lam1, double lam2, double lam3, double learning_rate, double tolerance, int maxit, int ncores, bool pos);
-RcppExport SEXP _mtool_MultinomLogisticPCD(SEXP XSEXP, SEXP YSEXP, SEXP offset_vecSEXP, SEXP K_classesSEXP, SEXP reg_pSEXP, SEXP penalty_codeSEXP, SEXP regulSEXP, SEXP transposeSEXP, SEXP grp_idSEXP, SEXP etaGSEXP, SEXP grp_matSEXP, SEXP grpV_matSEXP, SEXP own_varSEXP, SEXP N_own_varSEXP, SEXP lam1SEXP, SEXP lam2SEXP, SEXP lam3SEXP, SEXP learning_rateSEXP, SEXP toleranceSEXP, SEXP maxitSEXP, SEXP ncoresSEXP, SEXP posSEXP) {
+RcppExport SEXP _cbSCRIP_MultinomLogisticPCD(SEXP XSEXP, SEXP YSEXP, SEXP offset_vecSEXP, SEXP K_classesSEXP, SEXP reg_pSEXP, SEXP penalty_codeSEXP, SEXP regulSEXP, SEXP transposeSEXP, SEXP grp_idSEXP, SEXP etaGSEXP, SEXP grp_matSEXP, SEXP grpV_matSEXP, SEXP own_varSEXP, SEXP N_own_varSEXP, SEXP lam1SEXP, SEXP lam2SEXP, SEXP lam3SEXP, SEXP learning_rateSEXP, SEXP toleranceSEXP, SEXP maxitSEXP, SEXP ncoresSEXP, SEXP posSEXP) {
 BEGIN_RCPP
     Rcpp::RObject rcpp_result_gen;
     Rcpp::RNGScope rcpp_rngScope_gen;
@@ -361,7 +361,7 @@ END_RCPP
 }
 // MultinomLogisticCCD
 Rcpp::List MultinomLogisticCCD(const arma::mat& X, const arma::vec& Y, const arma::vec& offset_vec, int K_classes, int reg_p, int penalty_code, const std::string& regul, bool transpose_prox_input, const Rcpp::IntegerVector& grp_id, const Rcpp::NumericVector& etaG, const arma::mat& grp_mat, const arma::mat& grpV_mat, const Rcpp::IntegerVector& own_var, const Rcpp::IntegerVector& N_own_var, double lam1, double lam2, double lam3, double learning_rate_scale, double tolerance, double kkt_abs_check_tol, int maxit, int max_ccd_passes_active_set, int ncores, bool pos);
-RcppExport SEXP _mtool_MultinomLogisticCCD(SEXP XSEXP, SEXP YSEXP, SEXP offset_vecSEXP, SEXP K_classesSEXP, SEXP reg_pSEXP, SEXP penalty_codeSEXP, SEXP regulSEXP, SEXP transpose_prox_inputSEXP, SEXP grp_idSEXP, SEXP etaGSEXP, SEXP grp_matSEXP, SEXP grpV_matSEXP, SEXP own_varSEXP, SEXP N_own_varSEXP, SEXP lam1SEXP, SEXP lam2SEXP, SEXP lam3SEXP, SEXP learning_rate_scaleSEXP, SEXP toleranceSEXP, SEXP kkt_abs_check_tolSEXP, SEXP maxitSEXP, SEXP max_ccd_passes_active_setSEXP, SEXP ncoresSEXP, SEXP posSEXP) {
+RcppExport SEXP _cbSCRIP_MultinomLogisticCCD(SEXP XSEXP, SEXP YSEXP, SEXP offset_vecSEXP, SEXP K_classesSEXP, SEXP reg_pSEXP, SEXP penalty_codeSEXP, SEXP regulSEXP, SEXP transpose_prox_inputSEXP, SEXP grp_idSEXP, SEXP etaGSEXP, SEXP grp_matSEXP, SEXP grpV_matSEXP, SEXP own_varSEXP, SEXP N_own_varSEXP, SEXP lam1SEXP, SEXP lam2SEXP, SEXP lam3SEXP, SEXP learning_rate_scaleSEXP, SEXP toleranceSEXP, SEXP kkt_abs_check_tolSEXP, SEXP maxitSEXP, SEXP max_ccd_passes_active_setSEXP, SEXP ncoresSEXP, SEXP posSEXP) {
 BEGIN_RCPP
     Rcpp::RObject rcpp_result_gen;
     Rcpp::RNGScope rcpp_rngScope_gen;
@@ -395,26 +395,26 @@ END_RCPP
 }
 
 static const R_CallMethodDef CallEntries[] = {
-    {"_mtool_grad_ls_loss", (DL_FUNC) &_mtool_grad_ls_loss, 4},
-    {"_mtool_grad_logistic_loss", (DL_FUNC) &_mtool_grad_logistic_loss, 4},
-    {"_mtool_grad_multinom_loss", (DL_FUNC) &_mtool_grad_multinom_loss, 6},
-    {"_mtool_mtool", (DL_FUNC) &_mtool_mtool, 25},
-    {"_mtool_MultinomLogistic", (DL_FUNC) &_mtool_MultinomLogistic, 22},
-    {"_mtool_scalar_scad_prox", (DL_FUNC) &_mtool_scalar_scad_prox, 3},
-    {"_mtool_proximalSCAD", (DL_FUNC) &_mtool_proximalSCAD, 4},
-    {"_mtool_grad_ls_loss2", (DL_FUNC) &_mtool_grad_ls_loss2, 4},
-    {"_mtool_grad_logistic_loss2", (DL_FUNC) &_mtool_grad_logistic_loss2, 4},
-    {"_mtool_grad_multinom_loss2", (DL_FUNC) &_mtool_grad_multinom_loss2, 7},
-    {"_mtool_MultinomLogistic2", (DL_FUNC) &_mtool_MultinomLogistic2, 24},
-    {"_mtool_MultinomLogisticExp", (DL_FUNC) &_mtool_MultinomLogisticExp, 22},
-    {"_mtool_MultinomLogisticAcc", (DL_FUNC) &_mtool_MultinomLogisticAcc, 27},
-    {"_mtool_MultinomLogisticSARAH", (DL_FUNC) &_mtool_MultinomLogisticSARAH, 22},
-    {"_mtool_MultinomLogisticPCD", (DL_FUNC) &_mtool_MultinomLogisticPCD, 22},
-    {"_mtool_MultinomLogisticCCD", (DL_FUNC) &_mtool_MultinomLogisticCCD, 24},
+    {"_cbSCRIP_grad_ls_loss", (DL_FUNC) &_cbSCRIP_grad_ls_loss, 4},
+    {"_cbSCRIP_grad_logistic_loss", (DL_FUNC) &_cbSCRIP_grad_logistic_loss, 4},
+    {"_cbSCRIP_grad_multinom_loss", (DL_FUNC) &_cbSCRIP_grad_multinom_loss, 6},
+    {"_cbSCRIP_mtool", (DL_FUNC) &_cbSCRIP_mtool, 25},
+    {"_cbSCRIP_MultinomLogistic", (DL_FUNC) &_cbSCRIP_MultinomLogistic, 22},
+    {"_cbSCRIP_scalar_scad_prox", (DL_FUNC) &_cbSCRIP_scalar_scad_prox, 3},
+    {"_cbSCRIP_proximalSCAD", (DL_FUNC) &_cbSCRIP_proximalSCAD, 4},
+    {"_cbSCRIP_grad_ls_loss2", (DL_FUNC) &_cbSCRIP_grad_ls_loss2, 4},
+    {"_cbSCRIP_grad_logistic_loss2", (DL_FUNC) &_cbSCRIP_grad_logistic_loss2, 4},
+    {"_cbSCRIP_grad_multinom_loss2", (DL_FUNC) &_cbSCRIP_grad_multinom_loss2, 7},
+    {"_cbSCRIP_MultinomLogistic2", (DL_FUNC) &_cbSCRIP_MultinomLogistic2, 24},
+    {"_cbSCRIP_MultinomLogisticExp", (DL_FUNC) &_cbSCRIP_MultinomLogisticExp, 22},
+    {"_cbSCRIP_MultinomLogisticAcc", (DL_FUNC) &_cbSCRIP_MultinomLogisticAcc, 27},
+    {"_cbSCRIP_MultinomLogisticSARAH", (DL_FUNC) &_cbSCRIP_MultinomLogisticSARAH, 22},
+    {"_cbSCRIP_MultinomLogisticPCD", (DL_FUNC) &_cbSCRIP_MultinomLogisticPCD, 22},
+    {"_cbSCRIP_MultinomLogisticCCD", (DL_FUNC) &_cbSCRIP_MultinomLogisticCCD, 24},
     {NULL, NULL, 0}
 };
 
-RcppExport void R_init_mtool(DllInfo *dll) {
+RcppExport void R_init_cbSCRIP(DllInfo *dll) {
     R_registerRoutines(dll, NULL, CallEntries, NULL, NULL);
     R_useDynamicSymbols(dll, FALSE);
 }
