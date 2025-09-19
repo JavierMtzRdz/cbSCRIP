@@ -4,7 +4,18 @@
 \alias{run_cv_fold}
 \title{Run a Single Fold of Cross-Validation}
 \usage{
-run_cv_fold(fold_indices, cb_data, lambdagrid, all_event_levels, ...)
+run_cv_fold(
+  fold_indices,
+  cb_data,
+  lambdagrid,
+  all_event_levels,
+  regularization,
+  alpha,
+  n_unpenalized = 2,
+  warm_start = T,
+  update_f = NULL,
+  ...
+)
 }
 \value{
 A vector of multinomial deviances for the fold.

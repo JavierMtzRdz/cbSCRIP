@@ -40,85 +40,18 @@ BEGIN_RCPP
 END_RCPP
 }
 // grad_multinom_loss
-arma::mat grad_multinom_loss(arma::rowvec& x, int& y, int& K, double& offset, arma::mat& param, int& p);
+arma::mat grad_multinom_loss(const arma::rowvec& x, int y, int K, double offset, const arma::mat& param, int p);
 RcppExport SEXP _cbSCRIP_grad_multinom_loss(SEXP xSEXP, SEXP ySEXP, SEXP KSEXP, SEXP offsetSEXP, SEXP paramSEXP, SEXP pSEXP) {
 BEGIN_RCPP
     Rcpp::RObject rcpp_result_gen;
     Rcpp::RNGScope rcpp_rngScope_gen;
-    Rcpp::traits::input_parameter< arma::rowvec& >::type x(xSEXP);
-    Rcpp::traits::input_parameter< int& >::type y(ySEXP);
-    Rcpp::traits::input_parameter< int& >::type K(KSEXP);
-    Rcpp::traits::input_parameter< double& >::type offset(offsetSEXP);
-    Rcpp::traits::input_parameter< arma::mat& >::type param(paramSEXP);
-    Rcpp::traits::input_parameter< int& >::type p(pSEXP);
+    Rcpp::traits::input_parameter< const arma::rowvec& >::type x(xSEXP);
+    Rcpp::traits::input_parameter< int >::type y(ySEXP);
+    Rcpp::traits::input_parameter< int >::type K(KSEXP);
+    Rcpp::traits::input_parameter< double >::type offset(offsetSEXP);
+    Rcpp::traits::input_parameter< const arma::mat& >::type param(paramSEXP);
+    Rcpp::traits::input_parameter< int >::type p(pSEXP);
     rcpp_result_gen = Rcpp::wrap(grad_multinom_loss(x, y, K, offset, param, p));
-    return rcpp_result_gen;
-END_RCPP
-}
-// mtool
-Rcpp::List mtool(arma::mat X, arma::mat Y, arma::vec wt, int K, int reg_p, arma::vec nk_vec, arma::vec task_rowid, int loss, int penalty, std::string regul, bool transpose, Rcpp::IntegerVector grp_id, Rcpp::NumericVector etaG, arma::mat grp, arma::mat grpV, Rcpp::IntegerVector own_var, Rcpp::IntegerVector N_own_var, double lam1, double lam2, double lam3, double learning_rate, double tolerance, int niter_inner, int maxit, int ncores);
-RcppExport SEXP _cbSCRIP_mtool(SEXP XSEXP, SEXP YSEXP, SEXP wtSEXP, SEXP KSEXP, SEXP reg_pSEXP, SEXP nk_vecSEXP, SEXP task_rowidSEXP, SEXP lossSEXP, SEXP penaltySEXP, SEXP regulSEXP, SEXP transposeSEXP, SEXP grp_idSEXP, SEXP etaGSEXP, SEXP grpSEXP, SEXP grpVSEXP, SEXP own_varSEXP, SEXP N_own_varSEXP, SEXP lam1SEXP, SEXP lam2SEXP, SEXP lam3SEXP, SEXP learning_rateSEXP, SEXP toleranceSEXP, SEXP niter_innerSEXP, SEXP maxitSEXP, SEXP ncoresSEXP) {
-BEGIN_RCPP
-    Rcpp::RObject rcpp_result_gen;
-    Rcpp::RNGScope rcpp_rngScope_gen;
-    Rcpp::traits::input_parameter< arma::mat >::type X(XSEXP);
-    Rcpp::traits::input_parameter< arma::mat >::type Y(YSEXP);
-    Rcpp::traits::input_parameter< arma::vec >::type wt(wtSEXP);
-    Rcpp::traits::input_parameter< int >::type K(KSEXP);
-    Rcpp::traits::input_parameter< int >::type reg_p(reg_pSEXP);
-    Rcpp::traits::input_parameter< arma::vec >::type nk_vec(nk_vecSEXP);
-    Rcpp::traits::input_parameter< arma::vec >::type task_rowid(task_rowidSEXP);
-    Rcpp::traits::input_parameter< int >::type loss(lossSEXP);
-    Rcpp::traits::input_parameter< int >::type penalty(penaltySEXP);
-    Rcpp::traits::input_parameter< std::string >::type regul(regulSEXP);
-    Rcpp::traits::input_parameter< bool >::type transpose(transposeSEXP);
-    Rcpp::traits::input_parameter< Rcpp::IntegerVector >::type grp_id(grp_idSEXP);
-    Rcpp::traits::input_parameter< Rcpp::NumericVector >::type etaG(etaGSEXP);
-    Rcpp::traits::input_parameter< arma::mat >::type grp(grpSEXP);
-    Rcpp::traits::input_parameter< arma::mat >::type grpV(grpVSEXP);
-    Rcpp::traits::input_parameter< Rcpp::IntegerVector >::type own_var(own_varSEXP);
-    Rcpp::traits::input_parameter< Rcpp::IntegerVector >::type N_own_var(N_own_varSEXP);
-    Rcpp::traits::input_parameter< double >::type lam1(lam1SEXP);
-    Rcpp::traits::input_parameter< double >::type lam2(lam2SEXP);
-    Rcpp::traits::input_parameter< double >::type lam3(lam3SEXP);
-    Rcpp::traits::input_parameter< double >::type learning_rate(learning_rateSEXP);
-    Rcpp::traits::input_parameter< double >::type tolerance(toleranceSEXP);
-    Rcpp::traits::input_parameter< int >::type niter_inner(niter_innerSEXP);
-    Rcpp::traits::input_parameter< int >::type maxit(maxitSEXP);
-    Rcpp::traits::input_parameter< int >::type ncores(ncoresSEXP);
-    rcpp_result_gen = Rcpp::wrap(mtool(X, Y, wt, K, reg_p, nk_vec, task_rowid, loss, penalty, regul, transpose, grp_id, etaG, grp, grpV, own_var, N_own_var, lam1, lam2, lam3, learning_rate, tolerance, niter_inner, maxit, ncores));
-    return rcpp_result_gen;
-END_RCPP
-}
-// MultinomLogistic
-Rcpp::List MultinomLogistic(arma::mat X, arma::vec Y, arma::vec offset, int K, int reg_p, int penalty, std::string regul, bool transpose, Rcpp::IntegerVector grp_id, Rcpp::NumericVector etaG, arma::mat grp, arma::mat grpV, Rcpp::IntegerVector own_var, Rcpp::IntegerVector N_own_var, double lam1, double lam2, double lam3, double learning_rate, double tolerance, int niter_inner, int maxit, int ncores);
-RcppExport SEXP _cbSCRIP_MultinomLogistic(SEXP XSEXP, SEXP YSEXP, SEXP offsetSEXP, SEXP KSEXP, SEXP reg_pSEXP, SEXP penaltySEXP, SEXP regulSEXP, SEXP transposeSEXP, SEXP grp_idSEXP, SEXP etaGSEXP, SEXP grpSEXP, SEXP grpVSEXP, SEXP own_varSEXP, SEXP N_own_varSEXP, SEXP lam1SEXP, SEXP lam2SEXP, SEXP lam3SEXP, SEXP learning_rateSEXP, SEXP toleranceSEXP, SEXP niter_innerSEXP, SEXP maxitSEXP, SEXP ncoresSEXP) {
-BEGIN_RCPP
-    Rcpp::RObject rcpp_result_gen;
-    Rcpp::RNGScope rcpp_rngScope_gen;
-    Rcpp::traits::input_parameter< arma::mat >::type X(XSEXP);
-    Rcpp::traits::input_parameter< arma::vec >::type Y(YSEXP);
-    Rcpp::traits::input_parameter< arma::vec >::type offset(offsetSEXP);
-    Rcpp::traits::input_parameter< int >::type K(KSEXP);
-    Rcpp::traits::input_parameter< int >::type reg_p(reg_pSEXP);
-    Rcpp::traits::input_parameter< int >::type penalty(penaltySEXP);
-    Rcpp::traits::input_parameter< std::string >::type regul(regulSEXP);
-    Rcpp::traits::input_parameter< bool >::type transpose(transposeSEXP);
-    Rcpp::traits::input_parameter< Rcpp::IntegerVector >::type grp_id(grp_idSEXP);
-    Rcpp::traits::input_parameter< Rcpp::NumericVector >::type etaG(etaGSEXP);
-    Rcpp::traits::input_parameter< arma::mat >::type grp(grpSEXP);
-    Rcpp::traits::input_parameter< arma::mat >::type grpV(grpVSEXP);
-    Rcpp::traits::input_parameter< Rcpp::IntegerVector >::type own_var(own_varSEXP);
-    Rcpp::traits::input_parameter< Rcpp::IntegerVector >::type N_own_var(N_own_varSEXP);
-    Rcpp::traits::input_parameter< double >::type lam1(lam1SEXP);
-    Rcpp::traits::input_parameter< double >::type lam2(lam2SEXP);
-    Rcpp::traits::input_parameter< double >::type lam3(lam3SEXP);
-    Rcpp::traits::input_parameter< double >::type learning_rate(learning_rateSEXP);
-    Rcpp::traits::input_parameter< double >::type tolerance(toleranceSEXP);
-    Rcpp::traits::input_parameter< int >::type niter_inner(niter_innerSEXP);
-    Rcpp::traits::input_parameter< int >::type maxit(maxitSEXP);
-    Rcpp::traits::input_parameter< int >::type ncores(ncoresSEXP);
-    rcpp_result_gen = Rcpp::wrap(MultinomLogistic(X, Y, offset, K, reg_p, penalty, regul, transpose, grp_id, etaG, grp, grpV, own_var, N_own_var, lam1, lam2, lam3, learning_rate, tolerance, niter_inner, maxit, ncores));
     return rcpp_result_gen;
 END_RCPP
 }
@@ -148,53 +81,9 @@ BEGIN_RCPP
     return R_NilValue;
 END_RCPP
 }
-// grad_ls_loss2
-arma::vec grad_ls_loss2(arma::rowvec& x, double& y, arma::vec& param, int& p);
-RcppExport SEXP _cbSCRIP_grad_ls_loss2(SEXP xSEXP, SEXP ySEXP, SEXP paramSEXP, SEXP pSEXP) {
-BEGIN_RCPP
-    Rcpp::RObject rcpp_result_gen;
-    Rcpp::RNGScope rcpp_rngScope_gen;
-    Rcpp::traits::input_parameter< arma::rowvec& >::type x(xSEXP);
-    Rcpp::traits::input_parameter< double& >::type y(ySEXP);
-    Rcpp::traits::input_parameter< arma::vec& >::type param(paramSEXP);
-    Rcpp::traits::input_parameter< int& >::type p(pSEXP);
-    rcpp_result_gen = Rcpp::wrap(grad_ls_loss2(x, y, param, p));
-    return rcpp_result_gen;
-END_RCPP
-}
-// grad_logistic_loss2
-arma::vec grad_logistic_loss2(arma::rowvec& x, double& y, arma::vec& param, int& p);
-RcppExport SEXP _cbSCRIP_grad_logistic_loss2(SEXP xSEXP, SEXP ySEXP, SEXP paramSEXP, SEXP pSEXP) {
-BEGIN_RCPP
-    Rcpp::RObject rcpp_result_gen;
-    Rcpp::RNGScope rcpp_rngScope_gen;
-    Rcpp::traits::input_parameter< arma::rowvec& >::type x(xSEXP);
-    Rcpp::traits::input_parameter< double& >::type y(ySEXP);
-    Rcpp::traits::input_parameter< arma::vec& >::type param(paramSEXP);
-    Rcpp::traits::input_parameter< int& >::type p(pSEXP);
-    rcpp_result_gen = Rcpp::wrap(grad_logistic_loss2(x, y, param, p));
-    return rcpp_result_gen;
-END_RCPP
-}
-// grad_multinom_loss2
-void grad_multinom_loss2(const arma::rowvec& x, int y, int K, double offset, const arma::mat& param, int p, arma::mat& grad_out);
-RcppExport SEXP _cbSCRIP_grad_multinom_loss2(SEXP xSEXP, SEXP ySEXP, SEXP KSEXP, SEXP offsetSEXP, SEXP paramSEXP, SEXP pSEXP, SEXP grad_outSEXP) {
-BEGIN_RCPP
-    Rcpp::RNGScope rcpp_rngScope_gen;
-    Rcpp::traits::input_parameter< const arma::rowvec& >::type x(xSEXP);
-    Rcpp::traits::input_parameter< int >::type y(ySEXP);
-    Rcpp::traits::input_parameter< int >::type K(KSEXP);
-    Rcpp::traits::input_parameter< double >::type offset(offsetSEXP);
-    Rcpp::traits::input_parameter< const arma::mat& >::type param(paramSEXP);
-    Rcpp::traits::input_parameter< int >::type p(pSEXP);
-    Rcpp::traits::input_parameter< arma::mat& >::type grad_out(grad_outSEXP);
-    grad_multinom_loss2(x, y, K, offset, param, p, grad_out);
-    return R_NilValue;
-END_RCPP
-}
-// MultinomLogistic2
-Rcpp::List MultinomLogistic2(arma::mat X, arma::vec Y, arma::vec offset, int K, int reg_p, int penalty, std::string regul, bool transpose, Rcpp::IntegerVector grp_id, Rcpp::NumericVector etaG, arma::mat grp, arma::mat grpV, Rcpp::IntegerVector own_var, Rcpp::IntegerVector N_own_var, double lam1, double lam2, double lam3, double learning_rate, double tolerance, int niter_inner, int maxit, int ncores, bool verbose, Rcpp::Nullable<Rcpp::NumericMatrix> param_start);
-RcppExport SEXP _cbSCRIP_MultinomLogistic2(SEXP XSEXP, SEXP YSEXP, SEXP offsetSEXP, SEXP KSEXP, SEXP reg_pSEXP, SEXP penaltySEXP, SEXP regulSEXP, SEXP transposeSEXP, SEXP grp_idSEXP, SEXP etaGSEXP, SEXP grpSEXP, SEXP grpVSEXP, SEXP own_varSEXP, SEXP N_own_varSEXP, SEXP lam1SEXP, SEXP lam2SEXP, SEXP lam3SEXP, SEXP learning_rateSEXP, SEXP toleranceSEXP, SEXP niter_innerSEXP, SEXP maxitSEXP, SEXP ncoresSEXP, SEXP verboseSEXP, SEXP param_startSEXP) {
+// MultinomLogistic
+Rcpp::List MultinomLogistic(arma::mat X, arma::vec Y, arma::vec offset, int K, int reg_p, int penalty, std::string regul, bool transpose, Rcpp::IntegerVector grp_id, Rcpp::NumericVector etaG, arma::mat grp, arma::mat grpV, Rcpp::IntegerVector own_var, Rcpp::IntegerVector N_own_var, double lam1, double lam2, double lam3, double learning_rate, double tolerance, int niter_inner, int maxit, int ncores, bool save_history, bool verbose, Rcpp::Nullable<Rcpp::NumericMatrix> param_start);
+RcppExport SEXP _cbSCRIP_MultinomLogistic(SEXP XSEXP, SEXP YSEXP, SEXP offsetSEXP, SEXP KSEXP, SEXP reg_pSEXP, SEXP penaltySEXP, SEXP regulSEXP, SEXP transposeSEXP, SEXP grp_idSEXP, SEXP etaGSEXP, SEXP grpSEXP, SEXP grpVSEXP, SEXP own_varSEXP, SEXP N_own_varSEXP, SEXP lam1SEXP, SEXP lam2SEXP, SEXP lam3SEXP, SEXP learning_rateSEXP, SEXP toleranceSEXP, SEXP niter_innerSEXP, SEXP maxitSEXP, SEXP ncoresSEXP, SEXP save_historySEXP, SEXP verboseSEXP, SEXP param_startSEXP) {
 BEGIN_RCPP
     Rcpp::RObject rcpp_result_gen;
     Rcpp::RNGScope rcpp_rngScope_gen;
@@ -220,10 +109,64 @@ BEGIN_RCPP
     Rcpp::traits::input_parameter< int >::type niter_inner(niter_innerSEXP);
     Rcpp::traits::input_parameter< int >::type maxit(maxitSEXP);
     Rcpp::traits::input_parameter< int >::type ncores(ncoresSEXP);
+    Rcpp::traits::input_parameter< bool >::type save_history(save_historySEXP);
     Rcpp::traits::input_parameter< bool >::type verbose(verboseSEXP);
     Rcpp::traits::input_parameter< Rcpp::Nullable<Rcpp::NumericMatrix> >::type param_start(param_startSEXP);
-    rcpp_result_gen = Rcpp::wrap(MultinomLogistic2(X, Y, offset, K, reg_p, penalty, regul, transpose, grp_id, etaG, grp, grpV, own_var, N_own_var, lam1, lam2, lam3, learning_rate, tolerance, niter_inner, maxit, ncores, verbose, param_start));
+    rcpp_result_gen = Rcpp::wrap(MultinomLogistic(X, Y, offset, K, reg_p, penalty, regul, transpose, grp_id, etaG, grp, grpV, own_var, N_own_var, lam1, lam2, lam3, learning_rate, tolerance, niter_inner, maxit, ncores, save_history, verbose, param_start));
     return rcpp_result_gen;
+END_RCPP
+}
+// MultinomLogisticAcc
+Rcpp::List MultinomLogisticAcc(const arma::mat& X, const arma::vec& Y, const arma::vec& offset, int K, int reg_p, int penalty, std::string regul, bool transpose, Rcpp::IntegerVector grp_id, Rcpp::NumericVector etaG, const arma::mat& grp, const arma::mat& grpV, Rcpp::IntegerVector own_var, Rcpp::IntegerVector N_own_var, double lam1, double lam2, double lam3, double c_factor, double v_factor, double tolerance, int niter_inner, int maxit, int ncores, bool save_history, bool verbose, bool pos, Rcpp::Nullable<Rcpp::NumericMatrix> param_start);
+RcppExport SEXP _cbSCRIP_MultinomLogisticAcc(SEXP XSEXP, SEXP YSEXP, SEXP offsetSEXP, SEXP KSEXP, SEXP reg_pSEXP, SEXP penaltySEXP, SEXP regulSEXP, SEXP transposeSEXP, SEXP grp_idSEXP, SEXP etaGSEXP, SEXP grpSEXP, SEXP grpVSEXP, SEXP own_varSEXP, SEXP N_own_varSEXP, SEXP lam1SEXP, SEXP lam2SEXP, SEXP lam3SEXP, SEXP c_factorSEXP, SEXP v_factorSEXP, SEXP toleranceSEXP, SEXP niter_innerSEXP, SEXP maxitSEXP, SEXP ncoresSEXP, SEXP save_historySEXP, SEXP verboseSEXP, SEXP posSEXP, SEXP param_startSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< const arma::mat& >::type X(XSEXP);
+    Rcpp::traits::input_parameter< const arma::vec& >::type Y(YSEXP);
+    Rcpp::traits::input_parameter< const arma::vec& >::type offset(offsetSEXP);
+    Rcpp::traits::input_parameter< int >::type K(KSEXP);
+    Rcpp::traits::input_parameter< int >::type reg_p(reg_pSEXP);
+    Rcpp::traits::input_parameter< int >::type penalty(penaltySEXP);
+    Rcpp::traits::input_parameter< std::string >::type regul(regulSEXP);
+    Rcpp::traits::input_parameter< bool >::type transpose(transposeSEXP);
+    Rcpp::traits::input_parameter< Rcpp::IntegerVector >::type grp_id(grp_idSEXP);
+    Rcpp::traits::input_parameter< Rcpp::NumericVector >::type etaG(etaGSEXP);
+    Rcpp::traits::input_parameter< const arma::mat& >::type grp(grpSEXP);
+    Rcpp::traits::input_parameter< const arma::mat& >::type grpV(grpVSEXP);
+    Rcpp::traits::input_parameter< Rcpp::IntegerVector >::type own_var(own_varSEXP);
+    Rcpp::traits::input_parameter< Rcpp::IntegerVector >::type N_own_var(N_own_varSEXP);
+    Rcpp::traits::input_parameter< double >::type lam1(lam1SEXP);
+    Rcpp::traits::input_parameter< double >::type lam2(lam2SEXP);
+    Rcpp::traits::input_parameter< double >::type lam3(lam3SEXP);
+    Rcpp::traits::input_parameter< double >::type c_factor(c_factorSEXP);
+    Rcpp::traits::input_parameter< double >::type v_factor(v_factorSEXP);
+    Rcpp::traits::input_parameter< double >::type tolerance(toleranceSEXP);
+    Rcpp::traits::input_parameter< int >::type niter_inner(niter_innerSEXP);
+    Rcpp::traits::input_parameter< int >::type maxit(maxitSEXP);
+    Rcpp::traits::input_parameter< int >::type ncores(ncoresSEXP);
+    Rcpp::traits::input_parameter< bool >::type save_history(save_historySEXP);
+    Rcpp::traits::input_parameter< bool >::type verbose(verboseSEXP);
+    Rcpp::traits::input_parameter< bool >::type pos(posSEXP);
+    Rcpp::traits::input_parameter< Rcpp::Nullable<Rcpp::NumericMatrix> >::type param_start(param_startSEXP);
+    rcpp_result_gen = Rcpp::wrap(MultinomLogisticAcc(X, Y, offset, K, reg_p, penalty, regul, transpose, grp_id, etaG, grp, grpV, own_var, N_own_var, lam1, lam2, lam3, c_factor, v_factor, tolerance, niter_inner, maxit, ncores, save_history, verbose, pos, param_start));
+    return rcpp_result_gen;
+END_RCPP
+}
+// grad_multinom_loss2
+void grad_multinom_loss2(const arma::rowvec& x, int y, int K, double offset, const arma::mat& param, int p, arma::mat& grad_out);
+RcppExport SEXP _cbSCRIP_grad_multinom_loss2(SEXP xSEXP, SEXP ySEXP, SEXP KSEXP, SEXP offsetSEXP, SEXP paramSEXP, SEXP pSEXP, SEXP grad_outSEXP) {
+BEGIN_RCPP
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< const arma::rowvec& >::type x(xSEXP);
+    Rcpp::traits::input_parameter< int >::type y(ySEXP);
+    Rcpp::traits::input_parameter< int >::type K(KSEXP);
+    Rcpp::traits::input_parameter< double >::type offset(offsetSEXP);
+    Rcpp::traits::input_parameter< const arma::mat& >::type param(paramSEXP);
+    Rcpp::traits::input_parameter< int >::type p(pSEXP);
+    Rcpp::traits::input_parameter< arma::mat& >::type grad_out(grad_outSEXP);
+    grad_multinom_loss2(x, y, K, offset, param, p, grad_out);
+    return R_NilValue;
 END_RCPP
 }
 // MultinomLogisticExp
@@ -258,9 +201,9 @@ BEGIN_RCPP
     return rcpp_result_gen;
 END_RCPP
 }
-// MultinomLogisticAcc
-Rcpp::List MultinomLogisticAcc(const arma::mat& X, const arma::vec& Y, const arma::vec& offset, int K, int reg_p, int penalty, std::string regul, bool transpose, Rcpp::IntegerVector grp_id, Rcpp::NumericVector etaG, const arma::mat& grp, const arma::mat& grpV, Rcpp::IntegerVector own_var, Rcpp::IntegerVector N_own_var, double lam1, double lam2, double lam3, double learning_rate, double momentum_gamma, double tolerance, int niter_inner, int maxit, int ncores, bool pos, bool verbose, bool add_intercept, Rcpp::Nullable<Rcpp::NumericMatrix> param_start);
-RcppExport SEXP _cbSCRIP_MultinomLogisticAcc(SEXP XSEXP, SEXP YSEXP, SEXP offsetSEXP, SEXP KSEXP, SEXP reg_pSEXP, SEXP penaltySEXP, SEXP regulSEXP, SEXP transposeSEXP, SEXP grp_idSEXP, SEXP etaGSEXP, SEXP grpSEXP, SEXP grpVSEXP, SEXP own_varSEXP, SEXP N_own_varSEXP, SEXP lam1SEXP, SEXP lam2SEXP, SEXP lam3SEXP, SEXP learning_rateSEXP, SEXP momentum_gammaSEXP, SEXP toleranceSEXP, SEXP niter_innerSEXP, SEXP maxitSEXP, SEXP ncoresSEXP, SEXP posSEXP, SEXP verboseSEXP, SEXP add_interceptSEXP, SEXP param_startSEXP) {
+// MultinomLogisticSAGA
+Rcpp::List MultinomLogisticSAGA(const arma::mat& X, const arma::vec& Y, const arma::vec& offset, int K, int reg_p, int penalty, std::string regul, bool transpose, Rcpp::IntegerVector grp_id, Rcpp::NumericVector etaG, const arma::mat& grp, const arma::mat& grpV, Rcpp::IntegerVector own_var, Rcpp::IntegerVector N_own_var, double lam1, double lam2, double lam3, double c_factor, double v_factor, double tolerance, int maxit, int ncores, bool pos, bool verbose, bool save_history, Rcpp::Nullable<Rcpp::NumericMatrix> param_start);
+RcppExport SEXP _cbSCRIP_MultinomLogisticSAGA(SEXP XSEXP, SEXP YSEXP, SEXP offsetSEXP, SEXP KSEXP, SEXP reg_pSEXP, SEXP penaltySEXP, SEXP regulSEXP, SEXP transposeSEXP, SEXP grp_idSEXP, SEXP etaGSEXP, SEXP grpSEXP, SEXP grpVSEXP, SEXP own_varSEXP, SEXP N_own_varSEXP, SEXP lam1SEXP, SEXP lam2SEXP, SEXP lam3SEXP, SEXP c_factorSEXP, SEXP v_factorSEXP, SEXP toleranceSEXP, SEXP maxitSEXP, SEXP ncoresSEXP, SEXP posSEXP, SEXP verboseSEXP, SEXP save_historySEXP, SEXP param_startSEXP) {
 BEGIN_RCPP
     Rcpp::RObject rcpp_result_gen;
     Rcpp::RNGScope rcpp_rngScope_gen;
@@ -281,17 +224,16 @@ BEGIN_RCPP
     Rcpp::traits::input_parameter< double >::type lam1(lam1SEXP);
     Rcpp::traits::input_parameter< double >::type lam2(lam2SEXP);
     Rcpp::traits::input_parameter< double >::type lam3(lam3SEXP);
-    Rcpp::traits::input_parameter< double >::type learning_rate(learning_rateSEXP);
-    Rcpp::traits::input_parameter< double >::type momentum_gamma(momentum_gammaSEXP);
+    Rcpp::traits::input_parameter< double >::type c_factor(c_factorSEXP);
+    Rcpp::traits::input_parameter< double >::type v_factor(v_factorSEXP);
     Rcpp::traits::input_parameter< double >::type tolerance(toleranceSEXP);
-    Rcpp::traits::input_parameter< int >::type niter_inner(niter_innerSEXP);
     Rcpp::traits::input_parameter< int >::type maxit(maxitSEXP);
     Rcpp::traits::input_parameter< int >::type ncores(ncoresSEXP);
     Rcpp::traits::input_parameter< bool >::type pos(posSEXP);
     Rcpp::traits::input_parameter< bool >::type verbose(verboseSEXP);
-    Rcpp::traits::input_parameter< bool >::type add_intercept(add_interceptSEXP);
+    Rcpp::traits::input_parameter< bool >::type save_history(save_historySEXP);
     Rcpp::traits::input_parameter< Rcpp::Nullable<Rcpp::NumericMatrix> >::type param_start(param_startSEXP);
-    rcpp_result_gen = Rcpp::wrap(MultinomLogisticAcc(X, Y, offset, K, reg_p, penalty, regul, transpose, grp_id, etaG, grp, grpV, own_var, N_own_var, lam1, lam2, lam3, learning_rate, momentum_gamma, tolerance, niter_inner, maxit, ncores, pos, verbose, add_intercept, param_start));
+    rcpp_result_gen = Rcpp::wrap(MultinomLogisticSAGA(X, Y, offset, K, reg_p, penalty, regul, transpose, grp_id, etaG, grp, grpV, own_var, N_own_var, lam1, lam2, lam3, c_factor, v_factor, tolerance, maxit, ncores, pos, verbose, save_history, param_start));
     return rcpp_result_gen;
 END_RCPP
 }
@@ -398,16 +340,13 @@ static const R_CallMethodDef CallEntries[] = {
     {"_cbSCRIP_grad_ls_loss", (DL_FUNC) &_cbSCRIP_grad_ls_loss, 4},
     {"_cbSCRIP_grad_logistic_loss", (DL_FUNC) &_cbSCRIP_grad_logistic_loss, 4},
     {"_cbSCRIP_grad_multinom_loss", (DL_FUNC) &_cbSCRIP_grad_multinom_loss, 6},
-    {"_cbSCRIP_mtool", (DL_FUNC) &_cbSCRIP_mtool, 25},
-    {"_cbSCRIP_MultinomLogistic", (DL_FUNC) &_cbSCRIP_MultinomLogistic, 22},
     {"_cbSCRIP_scalar_scad_prox", (DL_FUNC) &_cbSCRIP_scalar_scad_prox, 3},
     {"_cbSCRIP_proximalSCAD", (DL_FUNC) &_cbSCRIP_proximalSCAD, 4},
-    {"_cbSCRIP_grad_ls_loss2", (DL_FUNC) &_cbSCRIP_grad_ls_loss2, 4},
-    {"_cbSCRIP_grad_logistic_loss2", (DL_FUNC) &_cbSCRIP_grad_logistic_loss2, 4},
-    {"_cbSCRIP_grad_multinom_loss2", (DL_FUNC) &_cbSCRIP_grad_multinom_loss2, 7},
-    {"_cbSCRIP_MultinomLogistic2", (DL_FUNC) &_cbSCRIP_MultinomLogistic2, 24},
-    {"_cbSCRIP_MultinomLogisticExp", (DL_FUNC) &_cbSCRIP_MultinomLogisticExp, 22},
+    {"_cbSCRIP_MultinomLogistic", (DL_FUNC) &_cbSCRIP_MultinomLogistic, 25},
     {"_cbSCRIP_MultinomLogisticAcc", (DL_FUNC) &_cbSCRIP_MultinomLogisticAcc, 27},
+    {"_cbSCRIP_grad_multinom_loss2", (DL_FUNC) &_cbSCRIP_grad_multinom_loss2, 7},
+    {"_cbSCRIP_MultinomLogisticExp", (DL_FUNC) &_cbSCRIP_MultinomLogisticExp, 22},
+    {"_cbSCRIP_MultinomLogisticSAGA", (DL_FUNC) &_cbSCRIP_MultinomLogisticSAGA, 26},
     {"_cbSCRIP_MultinomLogisticSARAH", (DL_FUNC) &_cbSCRIP_MultinomLogisticSARAH, 22},
     {"_cbSCRIP_MultinomLogisticPCD", (DL_FUNC) &_cbSCRIP_MultinomLogisticPCD, 22},
     {"_cbSCRIP_MultinomLogisticCCD", (DL_FUNC) &_cbSCRIP_MultinomLogisticCCD, 24},

@@ -41,1156 +41,182 @@ arma::vec grad_logistic_loss(
 
 // [[Rcpp::export]]
 arma::mat grad_multinom_loss(
-    arma::rowvec& x,
-    int& y,
-    int& K,
-    double& offset,
-    arma::mat& param,
-    int& p) {
-  arma::mat grad(p, K);
-  arma::vec pi(K);
-  
-  for (int i = 0; i < K; i++) {
-    pi(i) = exp(arma::dot(x, param.col(i)) + offset);
-  }
-  pi = pi/(arma::sum(pi) + 1.0);
-  
-  if (y == 0) {
-    for (int k = 0; k < K; k++) {
-      grad.col(k) = pi(k) * arma::vectorise(x);
+        const arma::rowvec& x,
+        int y,
+        int K,
+        double offset,
+        const arma::mat& param,
+        int p) {
+    
+    arma::mat grad_out(p, K);
+    
+    // linear score for each of the K classes.
+    arma::vec linear_scores = param.t() * x.t() + offset;
+    
+    // log-sum-exp trick
+    double max_score = linear_scores.max();
+    if (max_score < 0.0) {
+        max_score = 0.0;
     }
-  } else {
-    for (int k = 0; k < K; k++) {
-      if (k == y - 1) {
-        grad.col(k) = (pi(k) - 1) * arma::vectorise(x);
-      } else {
-        grad.col(k) = pi(k) * arma::vectorise(x);
-      }
+    
+    // exponent of the stabilized scores
+    arma::vec exp_scores = arma::exp(linear_scores - max_score);
+    
+    // final probabilities 
+    // 'exp(0.0 - max_score)' is for the baseline class.
+    arma::vec pi = exp_scores / (arma::accu(exp_scores) + exp(0.0 - max_score));
+    
+    // Vectorized calculation 
+    arma::vec x_col = x.t();
+    
+    grad_out = x_col * pi.t();
+    
+    //  column corresponding to the true class.
+    if (y > 0) { // indicator
+        // (pi_k - 1) * x for the true class.
+        //  subtract x.
+        grad_out.col(y - 1) -= x_col;
     }
-  }
-  return grad;
+    
+    return grad_out;
 }
 
 
 
 void proximalFlat(
-    arma::mat& U,
-    int& p,              // # of rows of U
-    int& K,              // # of columns of U
-    std::string& regul,
-    Rcpp::IntegerVector& grp_id, // grp is a vector for proximalFlat
-    int num_threads,
-    double lam1,
-    double lam2 = 0.0,
-    double lam3 = 0.0,
-    bool intercept = false,
-    bool resetflow = false,
-    bool verbose = false,
-    bool pos = false,
-    bool clever = true,
-    bool eval = true,
-    int size_group = 1,
-    bool transpose = false) {
-  // dimensions
-  // int p = U.n_rows;
-  // int K = U.n_cols;
-  int pK = int (p*K);
-  
-  // read in U and convert to spams::Matrix<double> alpha0
-  double* ptrU = new double[pK];
-  for (int r = 0; r < p; r++) {
-    for (int c = 0; c < K; c++) {
-      ptrU[c * p + r] = U(r, c);
-    }
-  }
-  Matrix<double> alpha0(ptrU,p,K);
-  
-  
-  
-  // read in regul and convert to char
-  int l = regul.length();
-  char* name_regul = new char[l];
-  for (int i = 0; i < l+1; i++) {
-    name_regul[i] = regul[i];
-  }
-  
-  
-  
-  // Initialize alpha - proximal operator
-  Matrix<double> alpha(p,K);
-  alpha.setZeros();
-  
-  // read in grp_id and convert to spams::Vector<int> groups
-  int* ptrG = new int[p];
-  for (int i = 0; i < p; i++) {
-    ptrG[i] = grp_id(i);
-  }
-  
-  
-  
-  Vector<int> groups(ptrG, p);
-  
-  _proximalFlat(&alpha0,&alpha,&groups,num_threads,
-                lam1,lam2,lam3,intercept,
-                resetflow,name_regul,verbose,pos,
-                clever,eval,size_group,transpose);
-  
-  // put updated alpha back into U
-  for (int r = 0; r < p; r++) {
-    for (int c = 0; c < K; c++) {
-      U(r, c) = alpha[p * c + r];
-    }
-  }
-  
-  
-  // free the dynamic memory
-  delete[] ptrU;
-  delete[] name_regul;
-  delete[] ptrG;
-}
-
-
-
-
-
-void proximalGraph(
-    arma::mat& U,
-    int& p,              // # of rows of U
-    int& K,              // # of columns of U
-    std::string& regul,
-    arma::mat& grp,      // grp is a matrix for proximalGraph and Tree
-    arma::mat& grpV,
-    Rcpp::NumericVector& etaG,
-    int num_threads,
-    double lam1,
-    double lam2 = 0.0,
-    double lam3 = 0.0,
-    bool intercept = false,
-    bool resetflow = false,
-    bool verbose = false,
-    bool pos = false,
-    bool clever = true,
-    bool eval = true,
-    int size_group = 1,
-    bool transpose = false) {
-  
-  // U dimensions
-  // int p = U.n_rows;
-  // int K = U.n_cols;
-  int pK = int (p*K);
-  
-  // read in U and convert to spams::Matrix<double> alpha0
-  double* ptrU = new double[pK];
-  for (int r = 0; r < p; r++) {
-    for (int c = 0; c < K; c++) {
-      ptrU[c * p + r] = U(r, c);
-    }
-  }
-  Matrix<double> alpha0(ptrU,p,K);
-  
-  
-  
-  // grp dimensions
-  int gr = grp.n_rows;
-  int gc = grp.n_cols;
-  int grc = int (gr * gc);
-  
-  // read in grp and convert to spams::Matrix<bool> grp_dense
-  // then to spams::SpMatrix<bool> groups
-  bool* ptrG = new bool[grc];
-  for (int r = 0; r < gr; r++) {
-    for (int c = 0; c < gc; c++) {
-      ptrG[c * gr + r] = (grp(r, c) != 0.0);
-    }
-  }
-  Matrix<bool> grp_dense(ptrG, gr, gc);
-  SpMatrix<bool> groups;
-  grp_dense.toSparse(groups);
-  
-  
-  
-  // grpV dimensions
-  int gvr = grpV.n_rows;
-  int gvc = grpV.n_cols;
-  int gvrc = int (gvr * gvc);
-  
-  // read in grpV and convert to spams::Matrix<bool> grpV_dense
-  // then to spams::SpMatrix<bool> groups_var
-  bool* ptrGV = new bool[gvrc];
-  for (int r = 0; r < gvr; r++) {
-    for (int c = 0; c < gvc; c++) {
-      ptrGV[c * gvr + r] = (grpV(r, c) != 0.0);
-    }
-  }
-  Matrix<bool> grpV_dense(ptrGV, gvr, gvc);
-  SpMatrix<bool> groups_var;
-  grpV_dense.toSparse(groups_var);
-  
-  
-  
-  // read in etaG and convert to spams::Vector<int> eta_g
-  int n_etaG = etaG.length();
-  double* ptrEG = new double[n_etaG];
-  for (int i = 0; i < n_etaG; i++) {
-    ptrEG[i] = etaG(i);
-  }
-  Vector<double> eta_g(ptrEG, n_etaG);
-  
-  
-  
-  // read in regul and convert to char
-  int l = regul.length();
-  char* name_regul = new char[l];
-  for (int i = 0; i < l+1; i++) {
-    name_regul[i] = regul[i];
-  }
-  
-  
-  
-  // Initialize alpha - proximal operator
-  Matrix<double> alpha(p,K);
-  alpha.setZeros();
-  
-  
-  // call _proximalGraph
-  _proximalGraph(&alpha0, &alpha,
-                 &eta_g, &groups, &groups_var,
-                 num_threads, lam1, lam2, lam3,
-                 intercept, resetflow, name_regul,
-                 verbose, pos, clever, eval,
-                 size_group, transpose);
-  
-  
-  
-  // put updated alpha back into U
-  for (int r = 0; r < p; r++) {
-    for (int c = 0; c < K; c++) {
-      U(r, c) = alpha[c * p + r];
-    }
-  }
-  
-  // free the dynamic memory
-  delete[] ptrU;
-  delete[] ptrG;
-  delete[] ptrGV;
-  delete[] ptrEG;
-  delete[] name_regul;
-}
-
-
-
-
-void proximalTree(
-    arma::mat& U,
-    int& p,              // # of rows of U
-    int& K,              // # of columns of U
-    std::string& regul,
-    arma::mat& grp,      // grp is a matrix for proximalGraph and Tree
-    Rcpp::NumericVector& etaG,
-    Rcpp::IntegerVector& own_var,
-    Rcpp::IntegerVector& N_own_var,
-    int num_threads,
-    double lam1,
-    double lam2 = 0.0,
-    double lam3 = 0.0,
-    bool intercept = false,
-    bool resetflow = false,
-    bool verbose = false,
-    bool pos = false,
-    bool clever = true,
-    bool eval = true,
-    int size_group = 1,
-    bool transpose = false) {
-  
-  
-  
-  // U dimensions
-  // int p = U.n_rows;
-  // int K = U.n_cols;
-  int pK = int (p*K);
-  
-  // read in U and convert to spams::Matrix<double> alpha0
-  double* ptrU = new double[pK];
-  for (int r = 0; r < p; r++) {
-    for (int c = 0; c < K; c++) {
-      ptrU[c * p + r] = U(r, c);
-    }
-  }
-  Matrix<double> alpha0(ptrU,p,K);
-  
-  
-  
-  // grp dimensions
-  int gr = grp.n_rows;
-  int gc = grp.n_cols;
-  int grc = int (gr * gc);
-  
-  // read in grp and convert to spams::Matrix<bool> grp_dense
-  // then to spams::SpMatrix<bool> groups
-  bool* ptrG = new bool[grc];
-  for (int r = 0; r < gr; r++) {
-    for (int c = 0; c < gc; c++) {
-      ptrG[c * gr + r] = ( grp(r, c) != 0.0 );
-    }
-  }
-  Matrix<bool> grp_dense(ptrG, gr, gc);
-  SpMatrix<bool> groups;
-  grp_dense.toSparse(groups);
-  
-  
-  
-  // read in etaG and convert to spams::Vector<double> eta_g
-  int n_etaG = etaG.length();
-  double* ptrEG = new double[n_etaG];
-  for (int i = 0; i < n_etaG; i++) {
-    ptrEG[i] = etaG(i);
-  }
-  Vector<double> eta_g(ptrEG, n_etaG);
-  
-  
-  
-  // read in own_var and convert to spams::Vector<int> own_variables
-  int n_ov = own_var.length();
-  int* ptrOV = new int[n_ov];
-  for (int i = 0; i < n_ov; i++) {
-    ptrOV[i] = own_var(i);
-  }
-  Vector<int> own_variables(ptrOV, n_ov);
-  
-  
-  
-  // read in N_own_var and convert to spams::Vector<int> N_own_variables
-  int n_Nov = N_own_var.length();
-  int* ptrNOV = new int[n_Nov];
-  for (int i = 0; i < n_Nov; i++) {
-    ptrNOV[i] = N_own_var(i);
-  }
-  Vector<int> N_own_variables(ptrNOV, n_Nov);
-  
-  
-  
-  // read in regul and convert to char
-  int l = regul.length();
-  char* name_regul = new char[l];
-  for (int i = 0; i < l+1; i++) {
-    name_regul[i] = regul[i];
-  }
-  
-  
-  
-  // Initialize alpha - proximal operator
-  Matrix<double> alpha(p,K);
-  alpha.setZeros();
-  
-  
-  
-  // call _proximalTree
-  _proximalTree(&alpha0, &alpha,
-                &eta_g, &groups,
-                &own_variables, &N_own_variables,
-                num_threads, lam1, lam2, lam3,
-                intercept, resetflow, name_regul,
-                verbose, pos, clever, eval,
-                size_group, transpose);
-  
-  
-  
-  // put updated alpha back into U
-  for (int r = 0; r < p; r++) {
-    for (int c = 0; c < K; c++) {
-      U(r, c) = alpha[c * p + r];
-    }
-  }
-  
-  // free the dynamic memory
-  delete[] ptrU;
-  delete[] ptrG;
-  delete[] ptrEG;
-  delete[] ptrOV;
-  delete[] ptrNOV;
-  delete[] name_regul;
-}
-
-
-
-
-
-// [[Rcpp::export]]
-Rcpp::List mtool(
-    arma::mat X,            // input
-    arma::mat Y,            // outcome
-    arma::vec wt,
-    int K,                  // number of tasks
-    int reg_p,              // number of regularized variables
-    arma::vec nk_vec,
-    arma::vec task_rowid,
-    int loss,               // 1 - least squares; 2 - logistic regression; 3 - Cox
-    int penalty,            // 1 - proximalFlat; 2 - proximalGraph; 3 - proximalTree
-    std::string regul,
-    bool transpose,
-    Rcpp::IntegerVector grp_id,
-    Rcpp::NumericVector etaG,
-    arma::mat grp,
-    arma::mat grpV,
-    Rcpp::IntegerVector own_var,
-    Rcpp::IntegerVector N_own_var,
-    double lam1,
-    double lam2,
-    double lam3,
-    double learning_rate,
-    double tolerance,
-    int niter_inner,
-    int maxit,
-    int ncores) {
-  
-  // initialize param
-  int p = X.n_cols;
-  
-  // indexing, stochastic sampling, etc..
-  int init_k;   // index of the first obs in task k
-  int n_k;      // number of obs in task k
-  int id_ik;    // index of the i-th obs in task k
-  int index;    // index of the stochastic sample
-  arma::rowvec x_sample(p);
-  double y_sample;
-  double wt_sample;
-  
-  // gradient and related
-  arma::mat grad(p, K);
-  arma::vec grad_k(p);         // k-th column of grad
-  arma::vec temp1(p);
-  arma::vec temp2(p);
-  
-  // parameter and related
-  arma::mat param(p, K);
-  param.zeros();
-  arma::vec param_k(p);     // k-th column of param
-  arma::mat param_old(p, K);
-  arma::vec param_old_k(p);
-  
-  arma::mat param_reg(reg_p, K);   // regularized coefficients
-  arma::mat param_t(K, reg_p);      // regularized coefficients
-  
-  // convergence related
-  // arma::mat param_update(p, K);
-  double diff;
-  int counter_outer = 0;
-  
-  // compute mu: mean gradient at param_old
-  while (true) {
-    param_old = param;
-    init_k = 0;
-    
-    for (int k = 0; k < K; k++) {
-      n_k = nk_vec(k);
-      param_old_k = param_old.col(k);
-      grad_k.zeros();
-      
-      for (int i = 0; i < n_k; i++) {
-        id_ik = task_rowid(init_k + i) - 1;
-        x_sample = X.row(id_ik);
-        y_sample = Y(id_ik, k);
-        wt_sample = wt(id_ik);
-        if (loss == 1) {
-          grad_k = grad_k + wt_sample * grad_ls_loss(x_sample, y_sample, param_old_k, p)/n_k;
-        }
-        if (loss == 2) {
-          grad_k = grad_k + wt_sample * grad_logistic_loss(x_sample, y_sample, param_old_k, p)/n_k;
-        }
-      }
-      grad.col(k) = grad_k;
-      init_k += n_k;
-    }
-    
-    // inner loop
-    for (int i = 0; i < niter_inner; ++i) {
-      init_k = 0;
-      
-      for (int k = 0; k < K; k++) {
-        n_k = nk_vec(k);
-        index = arma::randi(arma::distr_param(0, n_k - 1));
-        id_ik = task_rowid(init_k + index) - 1;
-        
-        x_sample = X.row(id_ik);
-        y_sample = Y(id_ik, k);
-        wt_sample = wt(id_ik);
-        
-        param_k = param.col(k);
-        param_old_k = param_old.col(k);
-        
-        if (loss == 1) {
-          temp1 = grad_ls_loss(x_sample, y_sample, param_k, p);
-          temp2 = grad_ls_loss(x_sample, y_sample, param_old_k, p);
-        }
-        
-        if (loss == 2) {
-          temp1 = grad_logistic_loss(x_sample, y_sample, param_k, p);
-          temp2 = grad_logistic_loss(x_sample, y_sample, param_old_k, p);
-        }
-        
-        param_k = param_k - learning_rate * (wt_sample * (temp1 - temp2) + grad.col(k));
-        
-        param.col(k) = param_k;
-        
-        init_k += n_k;
-      }
-      
-      // extract only variables involved in the penalization
-      param_reg = param.head_rows(reg_p);
-      
-      // call proximal function
-      if (transpose) {
-        param_t = param_reg.t();
-        
-        if (penalty == 1) {
-          proximalFlat(param_t, K, reg_p, regul, grp_id, ncores, lam1 * learning_rate, lam2 * learning_rate, lam3 * learning_rate);
-        }
-        
-        if (penalty == 2) {
-          proximalGraph(param_t, K, reg_p, regul, grp, grpV, etaG, ncores, lam1 * learning_rate, lam2 * learning_rate);
-        }
-        
-        if (penalty == 3) {
-          proximalTree(param_t, K, reg_p, regul, grp, etaG, own_var, N_own_var, ncores, lam1 * learning_rate, lam2 * learning_rate);
-        }
-        
-        param_reg = param_t.t();
-      } else {
-        if (penalty == 1) {
-          proximalFlat(param_reg, reg_p, K, regul, grp_id, ncores, lam1 * learning_rate, lam2 * learning_rate, lam3 * learning_rate);
-        }
-        
-        if (penalty == 2) {
-          proximalGraph(param_reg, reg_p, K, regul, grp, grpV, etaG, ncores, lam1 * learning_rate, lam2 * learning_rate);
-        }
-        
-        if (penalty == 3) {
-          proximalTree(param_reg, reg_p, K, regul, grp, etaG, own_var, N_own_var, ncores, lam1 * learning_rate, lam2 * learning_rate);
-        }
-      }
-      
-      param.head_rows(reg_p) = param_reg;
-      
-    }
-    
-    counter_outer += 1;
-    Rcpp::Rcout << "\n Iteration " << counter_outer <<"\n";
-    
-    diff = arma::norm(param - param_old, "fro");
-    diff = diff/(p*K);
-    Rcpp::Rcout << "Mean Frobenius norm of coefficient update \n" << diff <<"\n";
-    
-    if (diff < tolerance || counter_outer>= maxit) {
-      break;
-    }
-  }
-  
-  arma::sp_mat param_sp(param);
-  
-  Rcpp::List result = Rcpp::List::create(Rcpp::Named("Estimates")                     = param,
-                                         Rcpp::Named("Sparse Estimates")              = param_sp);
-  return result;
-}
-
-
-
-// [[Rcpp::export]]
-Rcpp::List MultinomLogistic(
-    arma::mat X,
-    arma::vec Y,
-    arma::vec offset,
-    int K,
-    int reg_p,              // number of regularized variables
-    int penalty,            // 1 - proximalFlat; 2 - proximalGraph; 3 - proximalTree
-    std::string regul,
-    bool transpose,
-    Rcpp::IntegerVector grp_id,
-    Rcpp::NumericVector etaG,
-    arma::mat grp,
-    arma::mat grpV,
-    Rcpp::IntegerVector own_var,
-    Rcpp::IntegerVector N_own_var,
-    double lam1,
-    double lam2,
-    double lam3,
-    double learning_rate,
-    double tolerance,
-    int niter_inner,
-    int maxit,
-    int ncores) {
-  
-  int p = X.n_cols;
-  int n = X.n_rows;
-  
-  // indexing, stochastic sampling, etc..
-  int index;    // index of the stochastic sample
-  arma::rowvec x_sample(p);
-  int y_sample;
-  double o_sample; // o for offset
-  
-  // gradient and related
-  arma::mat grad(p, K);
-  arma::mat temp1(p, K);
-  arma::mat temp2(p, K);
-  
-  // parameter and related
-  arma::mat param(p, K);
-  param.zeros();
-  arma::mat param_old(p, K);
-
-  arma::mat param_reg(reg_p, K);   // regularized coefficients
-  arma::mat param_t(K, reg_p);      // regularized coefficients
-  
-  // convergence related
-  double diff;
-  int counter_outer = 0;
-  
-  // compute mu: mean gradient at param_old
-  while (true) {
-    param_old = param;
-    grad.zeros();
-    
-    for (int i = 0; i < n; i++) {
-      x_sample = X.row(i);
-      y_sample = Y(i);
-      o_sample = offset(i);
-      grad = grad + grad_multinom_loss(x_sample, y_sample, K, o_sample, param_old, p)/n;
-    }
-
-    // inner loop
-    for (int i = 0; i < niter_inner; ++i) {
-
-      index = arma::randi(arma::distr_param(0, n - 1));
-
-      x_sample = X.row(index);
-      y_sample = Y(index);
-      o_sample = offset(index);
-
-      temp1 = grad_multinom_loss(x_sample, y_sample, K, o_sample, param, p);
-      temp2 = grad_multinom_loss(x_sample, y_sample, K, o_sample, param_old, p);
-
-      param = param - learning_rate * (temp1 - temp2 + grad);
-
-      // extract only variables involved in the penalization
-      param_reg = param.head_rows(reg_p);
-
-      // call proximal function
-      if (transpose) {
-        param_t = param_reg.t();
-        
-        if (penalty == 1) {
-          proximalFlat(param_t, K, reg_p, regul, grp_id, ncores, lam1 * learning_rate, lam2 * learning_rate, lam3 * learning_rate);
-        }
-        
-        if (penalty == 2) {
-          proximalGraph(param_t, K, reg_p, regul, grp, grpV, etaG, ncores, lam1 * learning_rate, lam2 * learning_rate);
-        }
-        
-        if (penalty == 3) {
-          proximalTree(param_t, K, reg_p, regul, grp, etaG, own_var, N_own_var, ncores, lam1 * learning_rate, lam2 * learning_rate);
-        }
-        
-        param_reg = param_t.t();
-      } else {
-        if (penalty == 1) {
-          proximalFlat(param_reg, reg_p, K, regul, grp_id, ncores, lam1 * learning_rate, lam2 * learning_rate, lam3 * learning_rate);
-        }
-        
-        if (penalty == 2) {
-          proximalGraph(param_reg, reg_p, K, regul, grp, grpV, etaG, ncores, lam1 * learning_rate, lam2 * learning_rate);
-        }
-        
-        if (penalty == 3) {
-          proximalTree(param_reg, reg_p, K, regul, grp, etaG, own_var, N_own_var, ncores, lam1 * learning_rate, lam2 * learning_rate);
-        }
-      }
-      
-      param.head_rows(reg_p) = param_reg;
-    }
-    
-    counter_outer += 1;
-    
-    
-     Rcpp::Rcout << "\n Iteration " << counter_outer <<"\n";
-    
-    
-    
-    diff = arma::norm(param - param_old, "fro");
-    diff = diff/(p*K);
-    
-    
-     Rcpp::Rcout << "Frobenius norm of coefficient update \n" << diff <<"\n";
-    
-    
-    if (diff < tolerance || counter_outer>= maxit) {
-      break;
-    }
-  }
-  
-  arma::sp_mat param_sp(param);
-  
-  Rcpp::List result = Rcpp::List::create(Rcpp::Named("Estimates")                     = param,
-                                         Rcpp::Named("Sparse Estimates")              = param_sp);
-  return result;
-}
-
-
-
-
-
-void proximalFlat2(
         arma::mat& U,
-        const int& p,     
+        const int& p,
         const int& K,
-        const std::string& regul,      
+        const std::string& regul,
         Rcpp::IntegerVector& grp_id,
         int num_threads,
         double lam1,
         double lam2 = 0.0,
         double lam3 = 0.0,
-        bool intercept = false,
-        bool resetflow = false,
-        bool verbose = false,
-        bool pos = false,
-        bool clever = true,
-        bool eval = true,
-        int size_group = 1,
-        bool transpose = false) {
-    // dimensions
-    // int p = U.n_rows;
-    // int K = U.n_cols;
-    // int pK = int (p*K);
+        bool pos = false) {
     
-    // read in U and convert to spams::Matrix<double> alpha0
-    // double* ptrU = new double[pK];
-    // for (int r = 0; r < p; r++) {
-    //     for (int c = 0; c < K; c++) {
-    //         ptrU[c * p + r] = U(r, c);
-    //     }
-    // }
-    // Matrix<double> alpha0(ptrU,p,K);
-    Matrix<double> alpha0(const_cast<double*>(U.memptr()), p, K);
+    // Wrap the existing Armadillo memory for the spams::Matrix object without copying.
+    Matrix<double> alpha0(U.memptr(), p, K);
     
-    
-    
-    // read in regul and convert to char
-    // int l = regul.length();
-    // char* name_regul = new char[l];
-    // for (int i = 0; i < l+1; i++) {
-    //     name_regul[i] = regul[i];
-    // }
-    std::vector<char> name_regul_buf(regul.begin(), regul.end()); 
-    name_regul_buf.push_back('\0'); 
+    // Safely get a mutable C-style string from std::string.
+    std::vector<char> name_regul_buf(regul.begin(), regul.end());
+    name_regul_buf.push_back('\0');
     char* name_regul_ptr = name_regul_buf.data();
     
+    // Wrap the existing Rcpp vector memory without copying.
+    Vector<int> groups(grp_id.begin(), p);
     
-    
-    // Initialize alpha - proximal operator
-    Matrix<double> alpha(p,K);
+    // Initialize the output matrix for the proximal operator.
+    Matrix<double> alpha(p, K);
     alpha.setZeros();
     
-    // read in grp_id and convert to spams::Vector<int> groups
-    // int* ptrG = new int[p];
-    // for (int i = 0; i < p; i++) {
-    //     ptrG[i] = grp_id(i);
-    // }
-    // Vector<int> groups(ptrG, p);
+    // Call the backend spams function.
+    _proximalFlat(&alpha0, &alpha, &groups, num_threads, lam1, lam2, lam3, false,
+                  false, name_regul_ptr, false, pos, true, true, 1, false);
     
-    Vector<int> groups(const_cast<int*>(grp_id.begin()), p); 
-    
-    
-    
-    
-    _proximalFlat(&alpha0,&alpha,&groups,num_threads,
-                   lam1,lam2,lam3,intercept,
-                   resetflow,name_regul_ptr,verbose,pos,
-                   clever,eval,size_group,transpose);
-    
-    // put updated alpha back into U
-    for (int r = 0; r < p; r++) {
-        for (int c = 0; c < K; c++) {
-            U(r, c) = alpha[p * c + r];
-        }
-    }
-    
-    
-    // free the dynamic memory
-    // delete[] ptrU;
-    // delete[] name_regul;
-    // delete[] ptrG;
+    // The backend function modifies `alpha`. Since alpha0 and U share memory,
+    // U is modified in-place. No explicit copy-back is needed if spams
+    // allows modifying the input matrix directly, otherwise a copy is needed.
+    // For safety, this implementation assumes spams writes to `alpha` and we copy back.
+    U = arma::mat(alpha.rawX(), p, K, true); // Create Armadillo matrix from spams result
 }
 
-
-void proximalFlat2_nospams(
-        arma::mat& U,             
-        int p,                    
-        int K,                    
-        const std::string& regul, 
-        const Rcpp::IntegerVector& grp_id, 
-        double lam1,              
-        double lam2 = 0.0,        
-        double lam3 = 0.0,        
-        bool intercept = false,   
-        bool resetflow = false,   
-        bool verbose = false,     
-        bool pos = false,         
-        bool clever = true,       
-        bool eval = true,         
-        int size_group = 1,       
-        bool transpose = false) { 
-    
-    if (lam1 < 0.0 || lam2 < 0.0 || lam3 < 0.0) {
-        Rcpp::stop("Lambda penalty parameters cannot be negative.");
-    }
-    
-    
-    if (regul == "L1") {
-        // Elementwise L1 Soft-thresholding: sign(u) * max(|u| - lam1, 0)
-        if (lam1 == 0.0) return; // No thresholding needed
-        U = arma::sign(U) % arma::max(arma::abs(U) - lam1, arma::zeros(p, K));
-        
-    } else if (regul == "L2") {
-        // Elementwise L2 Scaling (Ridge): u / (1 + 2*lam2)
-        if (lam2 == 0.0) return; 
-        U /= (1.0 + 2.0 * lam2);
-        
-    } else if (regul == "ElasticNet") {
-        // Composition: Apply L2 scaling then L1 thresholding
-        if (lam1 == 0.0 && lam2 == 0.0) return; // No penalty
-        
-        //  L2 Scaling (if lam2 > 0)
-        if (lam2 > 0.0) {
-            U /= (1.0 + 2.0 * lam2);
-        }
-        // L1 Soft-thresholding (if lam1 > 0)
-        if (lam1 > 0.0) {
-            U = arma::sign(U) % arma::max(arma::abs(U) - lam1, arma::zeros(p, K));
-        }
-        
-    } else if (regul == "GroupLasso") {
-        // Group Lasso Soft-thresholding (Block Soft-thresholding).
-        if (lam1 == 0.0) return; 
-        if (grp_id.length() != p) {
-            Rcpp::stop("grp_id length must match number of rows (p) for GroupLasso.");
-        }
-        
-        std::unordered_map<int, std::vector<arma::uword>> groups;
-        for(int i = 0; i < p; ++i) {
-            groups[grp_id[i]].push_back(i); 
-        }
-        
-        // Iterate through each identified group
-        for (auto const& [id, row_indices_vec] : groups) {
-            if (row_indices_vec.empty()) continue; // Skip empty groups if any
-            
-            arma::uvec row_indices(row_indices_vec);
-            
-            double group_norm = arma::norm(U.rows(row_indices), "fro");
-            
-            // Apply block soft-thresholding
-            double scaling_factor = std::max(0.0, 1.0 - lam1 / group_norm);
-            U.rows(row_indices) *= scaling_factor;
-            
-        } 
-        
-    } else if (regul == "FusedLasso" || regul == "Graph" || regul == "Tree") {
-        Rcpp::warning("Proximal operator for '%s' not implemented in this function. Skipping proximal step.", regul.c_str());
-        
-    } else {
-        Rcpp::warning("Unsupported 'regul' type in proximalFlat2_nospams: '%s'. Skipping proximal step.", regul.c_str());
-    }
-    
-    if (pos) {
-        U.elem( arma::find(U < 0.0) ).zeros(); 
-    }
-    
-}
-
-void proximalGraph2(
+void proximalGraph(
         arma::mat& U,
-        const int& p,     
+        const int& p,
         const int& K,
-        const std::string& regul,      
-        const arma::mat& grp,      
-        const arma::mat& grpV,     
+        const std::string& regul,
+        const arma::mat& grp,
+        const arma::mat& grpV,
         const Rcpp::NumericVector& etaG,
         int num_threads,
         double lam1,
         double lam2 = 0.0,
-        double lam3 = 0.0,
-        bool intercept = false,
-        bool resetflow = false,
-        bool verbose = false,
-        bool pos = false,
-        bool clever = true,
-        bool eval = true,
-        int size_group = 1,
-        bool transpose = false) {
+        bool pos = false) {
     
-    // U dimensions
-    // int p = U.n_rows;
-    // int K = U.n_cols;
-    // int pK = int (p*K);
+    Matrix<double> alpha0(U.memptr(), p, K);
     
-    // read in U and convert to spams::Matrix<double> alpha0
-    // double* ptrU = new double[pK];
-    // for (int r = 0; r < p; r++) {
-    //     for (int c = 0; c < K; c++) {
-    //         ptrU[c * p + r] = U(r, c);
-    //     }
-    // }
-    //Matrix<double> alpha0(ptrU,p,K);
-    Matrix<double> alpha0(const_cast<double*>(U.memptr()), p, K);
-    
-    
-    // grp dimensions
-    int gr = grp.n_rows;
-    int gc = grp.n_cols;
-    int grc = int (gr * gc);
-    
-    // read in grp and convert to spams::Matrix<bool> grp_dense
-    // then to spams::SpMatrix<bool> groups
-    bool* ptrG = new bool[grc];
-    for (int r = 0; r < gr; r++) {
-        for (int c = 0; c < gc; c++) {
-            ptrG[c * gr + r] = (grp(r, c) != 0.0);
-        }
+    std::vector<char> grp_vec(grp.n_elem);
+    for (arma::uword i = 0; i < grp.n_elem; ++i) {
+        grp_vec[i] = (grp[i] != 0.0); // Assigns 1 or 0
     }
-    Matrix<bool> grp_dense(ptrG, gr, gc);
+    Matrix<bool> grp_dense(reinterpret_cast<bool*>(grp_vec.data()), grp.n_rows, grp.n_cols);
     SpMatrix<bool> groups;
     grp_dense.toSparse(groups);
     
-    
-    
-    // grpV dimensions
-    int gvr = grpV.n_rows;
-    int gvc = grpV.n_cols;
-    int gvrc = int (gvr * gvc);
-    
-    // read in grpV and convert to spams::Matrix<bool> grpV_dense
-    // then to spams::SpMatrix<bool> groups_var
-    bool* ptrGV = new bool[gvrc];
-    for (int r = 0; r < gvr; r++) {
-        for (int c = 0; c < gvc; c++) {
-            ptrGV[c * gvr + r] = (grpV(r, c) != 0.0);
-        }
+    std::vector<char> grpV_vec(grpV.n_elem);
+    for (arma::uword i = 0; i < grpV.n_elem; ++i) {
+        grpV_vec[i] = (grpV[i] != 0.0);
     }
-    Matrix<bool> grpV_dense(ptrGV, gvr, gvc);
+    Matrix<bool> grpV_dense(reinterpret_cast<bool*>(grpV_vec.data()), grpV.n_rows, grpV.n_cols);
     SpMatrix<bool> groups_var;
     grpV_dense.toSparse(groups_var);
     
-    
-    
-    // read in etaG and convert to spams::Vector<int> eta_g
-    int n_etaG = etaG.length();
-    double* ptrEG = new double[n_etaG];
-    for (int i = 0; i < n_etaG; i++) {
-        ptrEG[i] = etaG(i);
-    }
-    Vector<double> eta_g(ptrEG, n_etaG);
-    
-    
-    
-    // read in regul and convert to char
-    // int l = regul.length();
-    // char* name_regul = new char[l];
-    // for (int i = 0; i < l+1; i++) {
-    //     name_regul[i] = regul[i];
-    // }
-    std::vector<char> name_regul_buf(regul.begin(), regul.end()); // Copy string content
-    name_regul_buf.push_back('\0'); // Add the null terminator
+    Vector<double> eta_g(const_cast<double*>(etaG.begin()), etaG.length());
+    std::vector<char> name_regul_buf(regul.begin(), regul.end());
+    name_regul_buf.push_back('\0');
     char* name_regul_ptr = name_regul_buf.data();
-    
-    
-    
-    // Initialize alpha - proximal operator
-    Matrix<double> alpha(p,K);
+    Matrix<double> alpha(p, K);
     alpha.setZeros();
     
+    _proximalGraph(&alpha0, &alpha, &eta_g, &groups, &groups_var, num_threads,
+                   lam1, lam2, 0.0, false, false, name_regul_ptr, false, pos,
+                   true, true, 1, false);
     
-    // call _proximalGraph
-    _proximalGraph(&alpha0, &alpha,
-                    &eta_g, &groups, &groups_var,
-                    num_threads, lam1, lam2, lam3,
-                    intercept, resetflow, name_regul_ptr,
-                    verbose, pos, clever, eval,
-                    size_group, transpose);
-    
-    
-    
-    // put updated alpha back into U
-    // for (int r = 0; r < p; r++) {
-    //     for (int c = 0; c < K; c++) {
-    //         U(r, c) = alpha[c * p + r];
-    //     }
-    // }
-    
-    // free the dynamic memory
-    // delete[] ptrU;
-    delete[] ptrG;
-    delete[] ptrGV;
-    delete[] ptrEG;
-    // delete[] name_regul;
+    U = arma::mat(alpha.rawX(), p, K, true);
 }
 
-
-
-
-void proximalTree2(
+void proximalTree(
         arma::mat& U,
-        const int& p,     
+        const int& p,
         const int& K,
-        const std::string& regul,      
-        const arma::mat& grp,      
+        const std::string& regul,
+        const arma::mat& grp,
         const Rcpp::NumericVector& etaG,
         Rcpp::IntegerVector& own_var,
         Rcpp::IntegerVector& N_own_var,
         int num_threads,
         double lam1,
         double lam2 = 0.0,
-        double lam3 = 0.0,
-        bool intercept = false,
-        bool resetflow = false,
-        bool verbose = false,
-        bool pos = false,
-        bool clever = true,
-        bool eval = true,
-        int size_group = 1,
-        bool transpose = false) {
+        bool pos = false) {
     
+    Matrix<double> alpha0(U.memptr(), p, K);
     
-    
-    // U dimensions
-    // int p = U.n_rows;
-    // int K = U.n_cols;
-    // int pK = int (p*K);
-    
-    // read in U and convert to spams::Matrix<double> alpha0
-    // double* ptrU = new double[pK];
-    // for (int r = 0; r < p; r++) {
-    //     for (int c = 0; c < K; c++) {
-    //         ptrU[c * p + r] = U(r, c);
-    //     }
-    // }
-    //Matrix<double> alpha0(ptrU,p,K);
-    Matrix<double> alpha0(const_cast<double*>(U.memptr()), p, K);
-    
-    
-    
-    // grp dimensions
-    int gr = grp.n_rows;
-    int gc = grp.n_cols;
-    int grc = int (gr * gc);
-    
-    // read in grp and convert to spams::Matrix<bool> grp_dense
-    // then to spams::SpMatrix<bool> groups
-    bool* ptrG = new bool[grc];
-    for (int r = 0; r < gr; r++) {
-        for (int c = 0; c < gc; c++) {
-            ptrG[c * gr + r] = ( grp(r, c) != 0.0 );
-        }
+    std::vector<char> grp_vec(grp.n_elem);
+    for (arma::uword i = 0; i < grp.n_elem; ++i) {
+        grp_vec[i] = (grp[i] != 0.0);
     }
-    Matrix<bool> grp_dense(ptrG, gr, gc);
+    Matrix<bool> grp_dense(reinterpret_cast<bool*>(grp_vec.data()), grp.n_rows, grp.n_cols);
     SpMatrix<bool> groups;
     grp_dense.toSparse(groups);
     
-    
-    
-    // read in etaG and convert to spams::Vector<double> eta_g
-    int n_etaG = etaG.length();
-    double* ptrEG = new double[n_etaG];
-    for (int i = 0; i < n_etaG; i++) {
-        ptrEG[i] = etaG(i);
-    }
-    Vector<double> eta_g(ptrEG, n_etaG);
-    
-    
-    
-    // read in own_var and convert to spams::Vector<int> own_variables
-    int n_ov = own_var.length();
-    int* ptrOV = new int[n_ov];
-    for (int i = 0; i < n_ov; i++) {
-        ptrOV[i] = own_var(i);
-    }
-    Vector<int> own_variables(ptrOV, n_ov);
-    
-    
-    
-    // read in N_own_var and convert to spams::Vector<int> N_own_variables
-    int n_Nov = N_own_var.length();
-    int* ptrNOV = new int[n_Nov];
-    for (int i = 0; i < n_Nov; i++) {
-        ptrNOV[i] = N_own_var(i);
-    }
-    Vector<int> N_own_variables(ptrNOV, n_Nov);
-    
-    
-    
-    // read in regul and convert to char
-    // int l = regul.length();
-    // char* name_regul = new char[l];
-    // for (int i = 0; i < l+1; i++) {
-    //     name_regul[i] = regul[i];
-    // }
-    std::vector<char> name_regul_buf(regul.begin(), regul.end()); // Copy string content
-    name_regul_buf.push_back('\0'); // Add the null terminator
+    Vector<double> eta_g(const_cast<double*>(etaG.begin()), etaG.length());
+    Vector<int> own_variables(own_var.begin(), own_var.length());
+    Vector<int> N_own_variables(N_own_var.begin(), N_own_var.length());
+    std::vector<char> name_regul_buf(regul.begin(), regul.end());
+    name_regul_buf.push_back('\0');
     char* name_regul_ptr = name_regul_buf.data();
-    
-    
-    
-    // Initialize alpha - proximal operator
-    Matrix<double> alpha(p,K);
+    Matrix<double> alpha(p, K);
     alpha.setZeros();
     
+    _proximalTree(&alpha0, &alpha, &eta_g, &groups, &own_variables, &N_own_variables,
+                  num_threads, lam1, lam2, 0.0, false, false, name_regul_ptr,
+                  false, pos, true, true, 1, false);
     
-    
-    // call _proximalTree
-    _proximalTree(&alpha0, &alpha,
-                   &eta_g, &groups,
-                   &own_variables, &N_own_variables,
-                   num_threads, lam1, lam2, lam3,
-                   intercept, resetflow, name_regul_ptr,
-                   verbose, pos, clever, eval,
-                   size_group, transpose);
-    
-    
-    
-    // put updated alpha back into U
-    for (int r = 0; r < p; r++) {
-        for (int c = 0; c < K; c++) {
-            U(r, c) = alpha[c * p + r];
-        }
-    }
-    
-    // free the dynamic memory
-    // delete[] ptrU;
-    delete[] ptrG;
-    delete[] ptrEG;
-    delete[] ptrOV;
-    delete[] ptrNOV;
-    // delete[] name_regul;
+    U = arma::mat(alpha.rawX(), p, K, true);
 }
-
-
 
 
 // [[Rcpp::export]]
 double scalar_scad_prox(double val, double lambda, double a) {
     double abs_val = std::abs(val);
-    
-    // Standard SCAD requires a > 2. We use 3.7 as a common default if an invalid 'a' is given.
-    if (a <= 2.0) {
-        a = 3.7;
-    }
+    if (a <= 2.0) a = 3.7;
     
     if (abs_val <= 2.0 * lambda) {
-        // This region is equivalent to soft-thresholding (Lasso).
         return std::copysign(std::max(0.0, abs_val - lambda), val);
     } else if (abs_val <= a * lambda) {
-        // This is the quadratic region of the SCAD penalty.
         return ((a - 1.0) * val - std::copysign(a * lambda, val)) / (a - 2.0);
     } else {
-        // In this region, the penalty is constant, so the proximal operator is the identity.
         return val;
     }
 }
@@ -1202,31 +228,12 @@ void proximalSCAD(
         double a_scad = 3.7,
         bool pos = false) {
     
-    // The 'a' parameter must be greater than 2 for the SCAD penalty to be well-defined.
     if (a_scad <= 2.0) {
         Rcpp::stop("The 'a' parameter for the SCAD penalty must be greater than 2.");
     }
     
-    // Use Armadillo's .for_each() to apply the logic to each element efficiently.
     U.for_each([&](arma::mat::elem_type& val) {
-        double z = val;
-        double abs_z = std::abs(z);
-        double new_val;
-        
-        if (abs_z <= 2.0 * lam1) {
-            // This is the soft-thresholding part, identical to the Lasso proximal operator.
-            double sign_z = (z > 0) - (z < 0); // Extracts the sign of z
-            new_val = sign_z * std::max(0.0, abs_z - lam1);
-        } else if (abs_z <= a_scad * lam1) {
-            // This is the second case for the SCAD solution.
-            double sign_z = (z > 0) - (z < 0);
-            new_val = ((a_scad - 1.0) * z - sign_z * a_scad * lam1) / (a_scad - 2.0);
-        } else {
-            // For large values, the penalty derivative is zero, so the solution is the input value itself.
-            new_val = z;
-        }
-        
-        // Enforce the positivity constraint if the 'pos' flag is true.
+        double new_val = scalar_scad_prox(val, lam1, a_scad);
         if (pos && new_val < 0) {
             val = 0.0;
         } else {
@@ -1235,199 +242,327 @@ void proximalSCAD(
     });
 }
 
-// void proximalSCAD2(
-//         arma::mat& U,
-//         int p,
-//         int K,
-//         const std::string& regul,
-//         const Rcpp::IntegerVector& grp_id,
-//         int ncores,
-//         double lambda,
-//         double a,
-//         bool pos,
-//         bool intercept,
-//         int ref_cat) {
-//     
-//     // Determine the dimension that corresponds to features based on grp_id length.
-//     // This implicitly handles the transposed vs. non-transposed cases.
-//     int feature_dim_size = grp_id.size();
-//     bool group_by_rows = (U.n_rows == feature_dim_size);
-//     bool group_by_cols = (U.n_cols == feature_dim_size);
-//     
-//     if (!group_by_rows && !group_by_cols) {
-//         Rcpp::stop("Matrix dimensions are inconsistent with grp_id length. Cannot determine feature dimension.");
-//     }
-//     
-//     // Map group IDs to the indices of the features belonging to them.
-//     std::map<int, std::vector<int>> groups;
-//     for (int i = 0; i < feature_dim_size; ++i) {
-//         groups[grp_id[i]].push_back(i);
-//     }
-//     
-//     // Iterate over each group of features.
-//     for (auto const& [group_id, indices] : groups) {
-//         // Skip the intercept group if the flag is set.
-//         if (intercept && group_id == 0) {
-//             continue;
-//         }
-//         
-//         if (indices.empty()) {
-//             continue;
-//         }
-//         
-//         if (group_by_rows) {
-//             // NON-TRANSPOSED CASE: U is (features x tasks), group rows.
-//             // Apply penalty to each task (column) vector for the current group.
-//             for (int c = 0; c < U.n_cols; ++c) {
-//                 if (c == ref_cat) continue; // Skip reference category.
-//                 
-//                 // Extract the coefficients for the current group and task.
-//                 arma::vec group_coeffs(indices.size());
-//                 for (size_t i = 0; i < indices.size(); ++i) {
-//                     group_coeffs(i) = U(indices[i], c);
-//                 }
-//                 
-//                 double norm_u_g = arma::norm(group_coeffs, 2);
-//                 
-//                 if (norm_u_g > 1e-10) {
-//                     // Apply scalar SCAD prox to the L2 norm of the group vector.
-//                     double prox_norm = scalar_scad_prox(norm_u_g, lambda, a);
-//                     double shrinkage = prox_norm / norm_u_g;
-//                     
-//                     // Apply the shrinkage factor to all coefficients in the group.
-//                     for (int idx : indices) {
-//                         U(idx, c) *= shrinkage;
-//                         if (pos) {
-//                             U(idx, c) = std::max(0.0, U(idx, c));
-//                         }
-//                     }
-//                 } else {
-//                     // If norm is zero, all coefficients are zero.
-//                     for (int idx : indices) {
-//                         U(idx, c) = 0.0;
-//                     }
-//                 }
-//             }
-//         } else { // group_by_cols
-//             // TRANSPOSED CASE: U is (tasks x features), group columns.
-//             // Apply penalty to each task (row) vector for the current group.
-//             for (int r = 0; r < U.n_rows; ++r) {
-//                 if (r == ref_cat) continue; // Skip reference category.
-//                 
-//                 // Extract the coefficients for the current group and task.
-//                 arma::vec group_coeffs(indices.size());
-//                 for (size_t i = 0; i < indices.size(); ++i) {
-//                     group_coeffs(i) = U(r, indices[i]);
-//                 }
-//                 
-//                 double norm_u_g = arma::norm(group_coeffs, 2);
-//                 
-//                 if (norm_u_g > 1e-10) {
-//                     // Apply scalar SCAD prox to the L2 norm of the group vector.
-//                     double prox_norm = scalar_scad_prox(norm_u_g, lambda, a);
-//                     double shrinkage = prox_norm / norm_u_g;
-//                     
-//                     // Apply the shrinkage factor to all coefficients in the group.
-//                     for (int idx : indices) {
-//                         U(r, idx) *= shrinkage;
-//                         if (pos) {
-//                             U(r, idx) = std::max(0.0, U(r, idx));
-//                         }
-//                     }
-//                 } else {
-//                     // If norm is zero, all coefficients are zero.
-//                     for (int idx : indices) {
-//                         U(r, idx) = 0.0;
-//                     }
-//                 }
-//             }
-//         }
-//     }
-// }
+void apply_proximal_step(
+        arma::mat& param, const arma::mat& param_unprox, double learning_rate,
+        int reg_p, int K, int p, bool transpose, int penalty, const std::string& regul,
+        Rcpp::IntegerVector& grp_id, int ncores, double lam1, double lam2, double lam3, bool pos,
+        const arma::mat& grp, const arma::mat& grpV, const Rcpp::NumericVector& etaG,
+        Rcpp::IntegerVector& own_var, Rcpp::IntegerVector& N_own_var
+) {
+    // Create a view of the penalized rows from the un-proximalized matrix
+    auto param_unprox_reg_view = param_unprox.head_rows(reg_p);
+    
+    // Scale lambda penalties by the learning rate
+    double scaled_lam1 = lam1 * learning_rate;
+    double scaled_lam2 = lam2 * learning_rate;
+    double scaled_lam3 = lam3 * learning_rate;
+    
+    if (transpose) {
+        arma::mat param_t = param_unprox_reg_view.t();
+        if (penalty == 1) proximalFlat(param_t, K, reg_p, regul, grp_id, ncores, scaled_lam1, scaled_lam2, scaled_lam3, pos);
+        else if (penalty == 2) proximalGraph(param_t, K, reg_p, regul, grp, grpV, etaG, ncores, scaled_lam1, scaled_lam2, pos);
+        else if (penalty == 3) proximalTree(param_t, K, reg_p, regul, grp, etaG, own_var, N_own_var, ncores, scaled_lam1, scaled_lam2, pos);
+        else if (penalty == 4) proximalSCAD(param_t, scaled_lam1, lam2, pos); 
+        param.head_rows(reg_p) = param_t.t();
+    } else {
+        arma::mat param_unprox_reg_copy = param_unprox_reg_view;
+        if (penalty == 1) proximalFlat(param_unprox_reg_copy, reg_p, K, regul, grp_id, ncores, scaled_lam1, scaled_lam2, scaled_lam3, pos);
+        else if (penalty == 2) proximalGraph(param_unprox_reg_copy, reg_p, K, regul, grp, grpV, etaG, ncores, scaled_lam1, scaled_lam2, pos);
+        else if (penalty == 3) proximalTree(param_unprox_reg_copy, reg_p, K, regul, grp, etaG, own_var, N_own_var, ncores, scaled_lam1, scaled_lam2, pos);
+        else if (penalty == 4) proximalSCAD(param_unprox_reg_copy, scaled_lam1, lam2, pos);
+        param.head_rows(reg_p) = param_unprox_reg_copy;
+    }
+    
+    // handle unpenalized variables 
+    if (reg_p < p) {
+        param.tail_rows(p - reg_p) = param_unprox.tail_rows(p - reg_p);
+    }
+}
 
-// void proximalSCAD(
-//         arma::mat& U,
-//         const int& p,
-//         const int& K,
-//         double lambda,
-//         double a = 3.7,
-//         bool intercept = false,
-//         bool pos = false,
-//         bool transpose = false) {
-//     
-//     if (lambda < 0) Rcpp::stop("lambda for SCAD must be non-negative.");
-//     if (a <= 2.0) {
-//         Rcpp::warning("Parameter 'a' for SCAD was <= 2.0; using default 3.7.");
-//         a = 3.7;
-//     }
-//     
-//     arma::uword n_rows = U.n_rows;
-//     arma::uword n_cols = U.n_cols;
-//     
-//     if (transpose && (n_rows != K || n_cols != p))
-//         Rcpp::stop("Matrix dimensions do not match K and p in transposed mode.");
-//     if (!transpose && (n_rows != p || n_cols != K))
-//         Rcpp::stop("Matrix dimensions do not match p and K in standard mode.");
-//     
-//     arma::uword row_start = (intercept && !transpose) ? 1 : 0;
-//     arma::uword col_start = (intercept && transpose) ? 1 : 0;
-//     
-//     arma::uword row_end = n_rows;
-//     arma::uword col_end = n_cols;
-//     
-//     for (arma::uword r = row_start; r < row_end; ++r) {
-//         for (arma::uword c = col_start; c < col_end; ++c) {
-//             
-//             double& u_val = U(r, c);
-//             double abs_u = std::abs(u_val);
-//             double sign_u = (u_val > 0.0) - (u_val < 0.0);
-//             double new_val = 0.0;
-//             
-//             if (abs_u <= lambda) {
-//                 new_val = 0.0;
-//             } else if (abs_u <= 2.0 * lambda) {
-//                 new_val = sign_u * std::max(0.0, abs_u - lambda);
-//             } else if (abs_u <= a * lambda) {
-//                 new_val = ((a - 1.0) * u_val - sign_u * a * lambda) / (a - 2.0);
-//             } else {
-//                 new_val = u_val;
-//             }
-//             
-//             if (pos && new_val < 0.0)
-//                 u_val = 0.0;
-//             else
-//                 u_val = new_val;
-//         }
-//     }
-// }
-
-
-
+static double get_lambda_max(const arma::mat& X) {
+    if (X.n_cols == 0) return 0.0;
+    arma::vec v(X.n_cols, arma::fill::randn);
+    v = v / arma::norm(v);
+    double lambda_old = 0.0, lambda_new = 1.0;
+    for (int i = 0; i < 100; ++i) {
+        arma::vec XtXv = X.t() * (X * v);
+        lambda_new = arma::norm(XtXv);
+        v = XtXv / lambda_new;
+        if (std::abs(lambda_new - lambda_old) < 1e-8) break;
+        lambda_old = lambda_new;
+    }
+    return lambda_new;
+}
 
 
 // [[Rcpp::export]]
-arma::vec grad_ls_loss2(
-        arma::rowvec& x,
-        double& y,
-        arma::vec& param,
-        int& p) {
-    arma::vec grad(p);
-    grad =  arma::vectorise(x) * (arma::dot(x, param) - y);
-    return grad;
+Rcpp::List MultinomLogistic(
+        arma::mat X,
+        arma::vec Y,
+        arma::vec offset,
+        int K,
+        int reg_p,
+        int penalty,
+        std::string regul,
+        bool transpose,
+        Rcpp::IntegerVector grp_id,
+        Rcpp::NumericVector etaG,
+        arma::mat grp,
+        arma::mat grpV,
+        Rcpp::IntegerVector own_var,
+        Rcpp::IntegerVector N_own_var,
+        double lam1,
+        double lam2,
+        double lam3,
+        double learning_rate,
+        double tolerance,
+        int niter_inner,
+        int maxit,
+        int ncores,
+        bool save_history = false,
+        bool verbose = false,
+        Rcpp::Nullable<Rcpp::NumericMatrix> param_start = R_NilValue) {
+    
+    int p = X.n_cols;
+    int n = X.n_rows;
+    
+    int index;
+    arma::rowvec x_sample(p);
+    int y_sample;
+    double o_sample;
+    
+    arma::mat grad(p, K);
+    arma::mat temp1(p, K);
+    arma::mat temp2(p, K);
+    arma::mat param_unprox(p, K); 
+    
+    arma::mat param(p, K);
+    if (param_start.isNotNull()) {
+        Rcpp::NumericMatrix start_mat_r(param_start);
+        if (start_mat_r.nrow() != p || start_mat_r.ncol() != K) {
+            Rcpp::stop("Dimensions of 'param_start' do not match the data (p x K).");
+        }
+        param = Rcpp::as<arma::mat>(start_mat_r);
+    } else {
+        param.zeros();
+    }
+    
+    arma::mat param_old(p, K);
+    
+    bool converged = false;
+    int convergence_iter = -1;
+    Rcpp::List param_history;
+    double diff;
+    int counter_outer = 0;
+    
+    while (true) {
+        
+        Rcpp::checkUserInterrupt();
+        
+        param_old = param;
+        
+        if (save_history) {
+            param_history.push_back(Rcpp::wrap(param_old));
+        }
+        
+        grad.zeros();
+        for (int i = 0; i < n; i++) {
+            x_sample = X.row(i);
+            y_sample = Y(i);
+            o_sample = offset(i);
+            grad += grad_multinom_loss(x_sample, y_sample, K, o_sample, param_old, p);
+        }
+        grad /= n;
+        
+        for (int i = 0; i < niter_inner; ++i) {
+            index = arma::randi(arma::distr_param(0, n - 1));
+            x_sample = X.row(index);
+            y_sample = Y(index);
+            o_sample = offset(index);
+            
+            temp1 = grad_multinom_loss(x_sample, y_sample, K, o_sample, param, p);
+            temp2 = grad_multinom_loss(x_sample, y_sample, K, o_sample, param_old, p);
+            
+            // Perform the gradient step and store in a temporary variable
+            param_unprox = param - learning_rate * (temp1 - temp2 + grad);
+            
+            apply_proximal_step(
+                param, param_unprox, learning_rate,
+                reg_p, K, p, transpose, penalty, regul,
+                grp_id, ncores, lam1, lam2, lam3, false, 
+                grp, grpV, etaG, own_var, N_own_var
+            );
+        }
+        
+        counter_outer += 1;
+        diff = arma::norm(param - param_old, "fro") / (arma::norm(param_old, "fro") + 1e-10);
+        
+        if (verbose) {
+            Rcpp::Rcout << "Iteration " << counter_outer << " | Relative Change: " << diff << "\n";
+        }
+        
+        if (diff < tolerance) {
+            converged = true;
+            convergence_iter = counter_outer;
+            break;
+        }
+        if (counter_outer >= maxit) {
+            convergence_iter = maxit;
+            break;
+        }
+    }
+    
+    arma::sp_mat param_sp(param);
+    
+    Rcpp::List result = Rcpp::List::create(
+        Rcpp::Named("Estimates") = param,
+        Rcpp::Named("Sparse Estimates") = param_sp,
+        Rcpp::Named("Converged") = converged,
+        Rcpp::Named("Convergence Iteration") = convergence_iter
+    );
+    
+    if (save_history) {
+        param_history.push_back(Rcpp::wrap(param));
+        result["History"] = param_history;
+    }
+    
+    return result;
 }
 
 // [[Rcpp::export]]
-arma::vec grad_logistic_loss2(
-        arma::rowvec& x,
-        double& y,
-        arma::vec& param,
-        int& p) {
-    arma::vec grad(p);
-    double sig;
-    sig = 1.0/( 1.0 + exp(-arma::dot(x, param)) );
-    grad =  arma::vectorise(x) * (sig - y);
-    return grad;
+Rcpp::List MultinomLogisticAcc(
+        const arma::mat& X,
+        const arma::vec& Y,
+        const arma::vec& offset,
+        int K,
+        int reg_p,
+        int penalty,
+        std::string regul,
+        bool transpose,
+        Rcpp::IntegerVector grp_id,
+        Rcpp::NumericVector etaG,
+        const arma::mat& grp,
+        const arma::mat& grpV,
+        Rcpp::IntegerVector own_var,
+        Rcpp::IntegerVector N_own_var,
+        double lam1,
+        double lam2,
+        double lam3,
+        double c_factor,  // <-- New parameter
+        double v_factor,  // <-- New parameter
+        double tolerance,
+        int niter_inner,
+        int maxit,
+        int ncores,
+        bool save_history = false,
+        bool verbose = false,
+        bool pos = false,
+        Rcpp::Nullable<Rcpp::NumericMatrix> param_start = R_NilValue) {
+    
+    const int p = X.n_cols;
+    const int n = X.n_rows;
+    
+    if (verbose) Rcpp::Rcout << "Detecting Lipschitz constant (L)..." << std::endl;
+    double lambda_max = get_lambda_max(X);
+    double L = (n > 0) ? (lambda_max / static_cast<double>(n)) : 1.0;
+    if (L < 1e-8) L = 1.0;
+    if (verbose) Rcpp::Rcout << "  - Lipschitz Constant (L) estimated as: " << L << std::endl;
+    
+    // --- Initialize iterates for the accelerated algorithm ---
+    arma::mat param_z(p, K), param_y(p, K), param_x(p, K);
+    if (param_start.isNotNull()) {
+        arma::mat start_mat = Rcpp::as<arma::mat>(Rcpp::NumericMatrix(param_start));
+        param_z = start_mat;
+        param_y = start_mat;
+        param_x = start_mat;
+    } else {
+        param_z.zeros();
+        param_y.zeros();
+        param_x.zeros();
+    }
+    
+    arma::mat snapshot_param(p, K), param_y_old(p, K), grad_full(p, K), grad_at_x(p, K),
+    grad_at_snapshot(p, K), grad_stoch(p, K), param_z_unprox(p, K);
+    
+    bool converged = false;
+    int convergence_iter = -1;
+    Rcpp::List param_history;
+    double diff;
+    int counter_outer = 0;
+    
+    while (true) {
+        Rcpp::checkUserInterrupt();
+        param_y_old = param_y;
+        counter_outer += 1;
+        
+        if (save_history) {
+            param_history.push_back(Rcpp::wrap(param_y));
+        }
+        
+        snapshot_param = param_y;
+        grad_full.zeros();
+        for (int i = 0; i < n; i++) {
+            grad_full += grad_multinom_loss(X.row(i), Y(i), K, offset(i), snapshot_param, p);
+        }
+        grad_full /= n;
+        
+        for (int k = 0; k < niter_inner; ++k) {
+            double gamma_k = (static_cast<double>(k) + v_factor + 4.0) / (2.0 * c_factor * L);
+            double tau_k = 1.0 / (c_factor * L * gamma_k);
+            if (tau_k > 1.0) tau_k = 1.0;
+            
+            // 1. Extrapolation step
+            param_x = tau_k * param_z + (1.0 - tau_k) * param_y;
+            
+            // 2. Variance-reduced gradient calculation
+            int index = arma::randi(arma::distr_param(0, n - 1));
+            grad_at_x = grad_multinom_loss(X.row(index), Y(index), K, offset(index), param_x, p);
+            grad_at_snapshot = grad_multinom_loss(X.row(index), Y(index), K, offset(index), snapshot_param, p);
+            grad_stoch = grad_at_x - grad_at_snapshot + grad_full;
+            
+            // 3. Proximal gradient step on z-iterate
+            param_z_unprox = param_z - gamma_k * grad_stoch;
+            apply_proximal_step(param_z, param_z_unprox, gamma_k, reg_p, K, p, transpose, penalty, regul,
+                                grp_id, ncores, lam1, lam2, lam3, pos, grp, grpV, etaG, own_var, N_own_var);
+            
+            // 4. Momentum update on y-iterate
+            param_y = tau_k * param_z + (1.0 - tau_k) * param_y;
+        }
+        
+        diff = arma::norm(param_y - param_y_old, "fro") / (arma::norm(param_y_old, "fro") + 1e-10);
+        
+        if (verbose) {
+            Rcpp::Rcout << "Iteration " << counter_outer << " | Relative Change: " << diff << "\n";
+        }
+        
+        if (diff < tolerance) {
+            converged = true;
+            convergence_iter = counter_outer;
+            break;
+        }
+        if (counter_outer >= maxit) {
+            convergence_iter = maxit;
+            break;
+        }
+    }
+    
+    arma::sp_mat param_sp(param_y);
+    
+    Rcpp::List result = Rcpp::List::create(
+        Rcpp::Named("Estimates") = param_y,
+        Rcpp::Named("Sparse Estimates") = param_sp,
+        Rcpp::Named("Converged") = converged,
+        Rcpp::Named("Convergence Iteration") = convergence_iter
+    );
+    
+    if (save_history) {
+        param_history.push_back(Rcpp::wrap(param_y));
+        result["History"] = param_history;
+    }
+    
+    return result;
 }
+
 
 // [[Rcpp::export]]
 void grad_multinom_loss2(
@@ -1440,10 +575,7 @@ void grad_multinom_loss2(
         arma::mat& grad_out) {
     
     // 1. Calculate the linear score for each of the K classes.
-    arma::vec linear_scores(K);
-    for (int i = 0; i < K; i++) {
-        linear_scores(i) = arma::dot(x, param.col(i)) + offset;
-    }
+    arma::vec linear_scores = param.t() * x.t() + offset;
     
     // 2. Find the maximum score among all classes, including the baseline's score of 0.
     // This is the key to preventing numerical overflow in the exp() function.
@@ -1562,189 +694,6 @@ void grad_multinom_loss2(
 // }
 
 
-
-// [[Rcpp::export]]
-Rcpp::List MultinomLogistic2(
-        arma::mat X,
-        arma::vec Y,
-        arma::vec offset,
-        int K,
-        int reg_p,              // number of regularized variables
-        int penalty,            // 1 - proximalFlat; 2 - proximalGraph; 3 - proximalTree
-        std::string regul,
-        bool transpose,
-        Rcpp::IntegerVector grp_id,
-        Rcpp::NumericVector etaG,
-        arma::mat grp,
-        arma::mat grpV,
-        Rcpp::IntegerVector own_var,
-        Rcpp::IntegerVector N_own_var,
-        double lam1,
-        double lam2,
-        double lam3,
-        double learning_rate,
-        double tolerance,
-        int niter_inner,
-        int maxit,
-        int ncores,
-        bool verbose = false,
-        Rcpp::Nullable<Rcpp::NumericMatrix> param_start = R_NilValue) {
-    
-    int p = X.n_cols;
-    int n = X.n_rows;
-    
-    // indexing, stochastic sampling, etc..
-    int index;    // index of the stochastic sample
-    arma::rowvec x_sample(p);
-    int y_sample;
-    double o_sample; // o for offset
-    
-    // gradient and related
-    arma::mat grad(p, K);
-    arma::mat temp1(p, K);
-    arma::mat temp2(p, K);
-    
-    // parameter and related
-    // arma::mat param(p, K, arma::fill::zeros);
-    arma::mat param(p, K); 
-    
-    if (param_start.isNotNull()) {
-        Rcpp::NumericMatrix param_start_mat(param_start); 
-        
-        // Check dimensions of the provided initial matrix
-        if (param_start_mat.nrow() != p || param_start_mat.ncol() != K) {
-            Rcpp::stop("Dimensions of provided 'param_start' matrix must be [X.n_cols x K].");
-        }
-        
-        param = Rcpp::as<arma::mat>(param_start_mat);
-        
-    } else {
-        param.zeros();
-    }
-    arma::mat param_old(p, K);
-    
-    arma::mat param_reg(reg_p, K);   // regularized coefficients
-    arma::mat param_t(K, reg_p);      // regularized coefficients
-    
-    // convergence related
-    double diff;
-    int counter_outer = 0;
-    
-    // compute mu: mean gradient at param_old
-    while (true) {
-        param_old = param; 
-        arma::mat single_grad(p, K);
-        grad.zeros();
-        
-        for (int i = 0; i < n; i++) {
-            const auto& x_sample = X.row(i);
-            const int& y_sample = Y(i);
-            const double& o_sample = offset(i);
-
-            grad_multinom_loss2(x_sample,
-                                       y_sample,
-                                       K,
-                                       o_sample,
-                                       param_old,
-                                       p,
-                                       single_grad);
-
-            grad += single_grad;
-        }
-
-        // Divide the final SUM by n ONCE
-        if (n > 0) {
-            grad /= n;
-        }
-        
-        
-        // inner loop
-        for (int i = 0; i < niter_inner; ++i) {
-            
-            index = arma::randi(arma::distr_param(0, n - 1));
-            
-            // x_sample = X.row(index);
-            const auto& x_sample = X.row(index);
-            y_sample = Y(index);
-            o_sample = offset(index);
-            
-            // temp1 = grad_multinom_loss2(x_sample, y_sample, K, o_sample, param, p);
-            // temp2 = grad_multinom_loss2(x_sample, y_sample, K, o_sample, param_old, p);
-            grad_multinom_loss2(x_sample, y_sample, K, o_sample, param, p, temp1);
-            grad_multinom_loss2(x_sample, y_sample, K, o_sample, param_old, p, temp2);
-            
-            param = param - learning_rate * (temp1 - temp2 + grad);
-            
-            // extract only variables involved in the penalization
-            param_reg = param.head_rows(reg_p);
-            
-            // call proximal function
-            if (transpose) {
-                param_t = param_reg.t();
-                
-                if (penalty == 1) {
-                    // proximalFlat2(param_t, K, reg_p, regul, grp_id, ncores, lam1 * learning_rate, lam2 * learning_rate, lam3 * learning_rate);
-                    arma::mat param_reg_copy = param_reg; // Explicit copy
-                    proximalFlat2_nospams(param_reg_copy, reg_p, K, regul, grp_id,
-                                          lam1 * learning_rate,
-                                          lam2 * learning_rate,
-                                          lam3 * learning_rate);
-                    param_reg = param_reg_copy; 
-                }
-                
-                if (penalty == 2) {
-                    proximalGraph2(param_t, K, reg_p, regul, grp, grpV, etaG, ncores, lam1 * learning_rate, lam2 * learning_rate);
-                }
-                
-                if (penalty == 3) {
-                    proximalTree2(param_t, K, reg_p, regul, grp, etaG, own_var, N_own_var, ncores, lam1 * learning_rate, lam2 * learning_rate);
-                }
-                
-                param_reg = param_t.t();
-            } else {
-                if (penalty == 1) {
-                    proximalFlat2(param_reg, reg_p, K, regul, grp_id, ncores, lam1 * learning_rate, lam2 * learning_rate, lam3 * learning_rate);
-                }
-                
-                if (penalty == 2) {
-                    proximalGraph2(param_reg, reg_p, K, regul, grp, grpV, etaG, ncores, lam1 * learning_rate, lam2 * learning_rate);
-                }
-                
-                if (penalty == 3) {
-                    proximalTree2(param_reg, reg_p, K, regul, grp, etaG, own_var, N_own_var, ncores, lam1 * learning_rate, lam2 * learning_rate);
-                }
-            }
-            
-            param.head_rows(reg_p) = param_reg;
-        }
-        
-        counter_outer += 1;
-        
-        diff = arma::norm(param - param_old, "fro");
-        diff = diff/(p*K);
-        if (verbose) {
-            Rcpp::Rcout << "\n Iteration " << counter_outer << "\n";
-            Rcpp::Rcout << "Frobenius norm of coefficient update \n" << diff <<"\n";
-        }
-        
-        
-        if (diff < tolerance || counter_outer>= maxit) {
-            break;
-        }
-    }
-    
-    arma::sp_mat param_sp(param);
-    
-    Rcpp::List result = Rcpp::List::create(Rcpp::Named("Estimates")                     = param,
-                                           Rcpp::Named("Sparse Estimates")              = param_sp);
-    return result;
-}
-
-
-
-
-
-
 // [[Rcpp::export]]
 Rcpp::List MultinomLogisticExp(
         arma::mat X,
@@ -1847,29 +796,29 @@ Rcpp::List MultinomLogisticExp(
                 param_t = param_reg.t();
                 
                 if (penalty == 1) {
-                    proximalFlat2(param_t, K, reg_p, regul, grp_id, ncores, lam1 * learning_rate, lam2 * learning_rate, lam3 * learning_rate);
+                    proximalFlat(param_t, K, reg_p, regul, grp_id, ncores, lam1 * learning_rate, lam2 * learning_rate, lam3 * learning_rate);
                 }
                 
                 if (penalty == 2) {
-                    proximalGraph2(param_t, K, reg_p, regul, grp, grpV, etaG, ncores, lam1 * learning_rate, lam2 * learning_rate);
+                    proximalGraph(param_t, K, reg_p, regul, grp, grpV, etaG, ncores, lam1 * learning_rate, lam2 * learning_rate);
                 }
                 
                 if (penalty == 3) {
-                    proximalTree2(param_t, K, reg_p, regul, grp, etaG, own_var, N_own_var, ncores, lam1 * learning_rate, lam2 * learning_rate);
+                    proximalTree(param_t, K, reg_p, regul, grp, etaG, own_var, N_own_var, ncores, lam1 * learning_rate, lam2 * learning_rate);
                 }
                 
                 param_reg = param_t.t();
             } else {
                 if (penalty == 1) {
-                    proximalFlat2(param_reg, reg_p, K, regul, grp_id, ncores, lam1 * learning_rate, lam2 * learning_rate, lam3 * learning_rate);
+                    proximalFlat(param_reg, reg_p, K, regul, grp_id, ncores, lam1 * learning_rate, lam2 * learning_rate, lam3 * learning_rate);
                 }
                 
                 if (penalty == 2) {
-                    proximalGraph2(param_reg, reg_p, K, regul, grp, grpV, etaG, ncores, lam1 * learning_rate, lam2 * learning_rate);
+                    proximalGraph(param_reg, reg_p, K, regul, grp, grpV, etaG, ncores, lam1 * learning_rate, lam2 * learning_rate);
                 }
                 
                 if (penalty == 3) {
-                    proximalTree2(param_reg, reg_p, K, regul, grp, etaG, own_var, N_own_var, ncores, lam1 * learning_rate, lam2 * learning_rate);
+                    proximalTree(param_reg, reg_p, K, regul, grp, etaG, own_var, N_own_var, ncores, lam1 * learning_rate, lam2 * learning_rate);
                 }
             }
             
@@ -1900,59 +849,28 @@ Rcpp::List MultinomLogisticExp(
     return result;
 }
 
-
-static double get_lambda_max(const arma::mat& X) {
-    if (X.n_cols == 0) return 0.0;
-    arma::vec v(X.n_cols, arma::fill::randn);
-    v = v / arma::norm(v);
-    double lambda_old = 0.0, lambda_new = 1.0;
-    for (int i = 0; i < 100; ++i) {
-        arma::vec XtXv = X.t() * (X * v);
-        lambda_new = arma::norm(XtXv);
-        v = XtXv / lambda_new;
-        if (std::abs(lambda_new - lambda_old) < 1e-8) break;
-        lambda_old = lambda_new;
-    }
-    return lambda_new;
-}
-
-
-// The apply_proximal_step function remains unchanged from your original implementation
-void apply_proximal_step(
-        arma::mat& param, const arma::mat& param_unprox, double learning_rate,
-        int reg_p, int K, int p, bool transpose, int penalty, const std::string& regul,
-        Rcpp::IntegerVector& grp_id, int ncores, double lam1, double lam2, double lam3, bool pos,
-        const arma::mat& grp, const arma::mat& grpV, const Rcpp::NumericVector& etaG,
-        Rcpp::IntegerVector& own_var, Rcpp::IntegerVector& N_own_var
-) {
-    auto param_unprox_reg_view = param_unprox.head_rows(reg_p);
-    double scaled_lam1 = lam1 * learning_rate;
-    double scaled_lam2 = lam2 * learning_rate;
-    double scaled_lam3 = lam3 * learning_rate;
+arma::mat rowwise_softmax_baseline(const arma::mat& eta) {
+    int n = eta.n_rows;
+    int K = eta.n_cols;
+    arma::mat P(n, K);
     
-    if (transpose) {
-        arma::mat param_t = param_unprox_reg_view.t();
-        if (penalty == 1) proximalFlat2(param_t, K, reg_p, regul, grp_id, ncores, scaled_lam1, scaled_lam2, scaled_lam3, pos);
-        else if (penalty == 2) proximalGraph2(param_t, K, reg_p, regul, grp, grpV, etaG, ncores, scaled_lam1, scaled_lam2, pos);
-        else if (penalty == 3) proximalTree2(param_t, K, reg_p, regul, grp, etaG, own_var, N_own_var, ncores, scaled_lam1, scaled_lam2, pos);
-        else if (penalty == 4) proximalSCAD(param_t, scaled_lam1, lam2, pos);
-        param.head_rows(reg_p) = param_t.t();
-    } else {
-        arma::mat param_unprox_reg_copy = param_unprox_reg_view;
-        if (penalty == 1) proximalFlat2(param_unprox_reg_copy, reg_p, K, regul, grp_id, ncores, scaled_lam1, scaled_lam2, scaled_lam3, pos);
-        else if (penalty == 2) proximalGraph2(param_unprox_reg_copy, reg_p, K, regul, grp, grpV, etaG, ncores, scaled_lam1, scaled_lam2, pos);
-        else if (penalty == 3) proximalTree2(param_unprox_reg_copy, reg_p, K, regul, grp, etaG, own_var, N_own_var, ncores, scaled_lam1, scaled_lam2, pos);
-        else if (penalty == 4) proximalSCAD(param_unprox_reg_copy, scaled_lam1, lam2, pos);
-        param.head_rows(reg_p) = param_unprox_reg_copy;
+    for(int i = 0; i < n; ++i) {
+        arma::rowvec current_eta = eta.row(i);
+        
+        // Stabilize using the log-sum-exp trick, including the baseline's score of 0
+        double max_score = current_eta.max();
+        if (max_score < 0.0) max_score = 0.0;
+        
+        arma::rowvec exp_scores = arma::exp(current_eta - max_score);
+        double denominator = arma::accu(exp_scores) + exp(0.0 - max_score);
+        P.row(i) = exp_scores / denominator;
     }
-    if (reg_p < p) {
-        param.tail_rows(p - reg_p) = param_unprox.tail_rows(p - reg_p);
-    }
+    return P;
 }
 
 
 // [[Rcpp::export]]
-Rcpp::List MultinomLogisticAcc(
+Rcpp::List MultinomLogisticSAGA(
         const arma::mat& X,
         const arma::vec& Y,
         const arma::vec& offset,
@@ -1970,318 +888,138 @@ Rcpp::List MultinomLogisticAcc(
         double lam1,
         double lam2,
         double lam3,
-        double learning_rate,
-        double momentum_gamma,
+        double c_factor,
+        double v_factor,
         double tolerance,
-        int niter_inner,
         int maxit,
         int ncores = 4,
         bool pos = false,
         bool verbose = false,
-        bool add_intercept = true,
+        bool save_history = false,
         Rcpp::Nullable<Rcpp::NumericMatrix> param_start = R_NilValue) {
     
-    int p_orig = X.n_cols;
-    int n = X.n_rows;
-    arma::mat X_eff;
-    int p;
+    const int p = X.n_cols;
+    const int n = X.n_rows;
+    if (n == 0) Rcpp::stop("Input data has 0 rows.");
     
-    if (add_intercept) {
-        p = p_orig + 1;
-        X_eff.set_size(n, p);
-        if (p_orig > 0) X_eff.head_cols(p_orig) = X;
-        X_eff.col(p - 1).ones();
+    if (verbose) Rcpp::Rcout << "Detecting Lipschitz constant (L)..." << std::endl;
+    double lambda_max = get_lambda_max(X);
+    double L = (n > 0) ? (lambda_max / static_cast<double>(n)) : 1.0;
+    if (L < 1e-8) L = 1.0;
+    if (verbose) Rcpp::Rcout << "  - Lipschitz Constant (L) estimated as: " << L << std::endl;
+    
+    arma::mat param_z(p, K), param_y(p, K), param_x(p, K);
+    if (param_start.isNotNull()) {
+        arma::mat start_mat = Rcpp::as<arma::mat>(Rcpp::NumericMatrix(param_start));
+        param_z = start_mat;
+        param_y = start_mat;
     } else {
-        p = p_orig;
-        X_eff = X;
+        param_z.zeros();
+        param_y.zeros();
     }
+    param_x = param_y;
     
-    // --- Determine the learning rate ---
-    double final_learning_rate;
-    if (learning_rate <= 0.0) {
-        if (verbose) {
-            Rcpp::Rcout << "Learning rate not specified. Detecting automatically..." << std::endl;
-        }
-        double lambda_max = get_lambda_max(X_eff);
-        double L = lambda_max / static_cast<double>(n);
-        
-        if (L > 1e-8) {
-            const double safety_factor = 0.5;
-            final_learning_rate = safety_factor / L;
-        } else {
-            final_learning_rate = 1.0;
-        }
-        if (verbose) {
-            Rcpp::Rcout << "  - Lipschitz Constant (L): " << L << std::endl;
-            Rcpp::Rcout << "  - Setting target learning rate to: " << final_learning_rate << std::endl;
-        }
-    } else {
-        final_learning_rate = learning_rate;
+    if (verbose) Rcpp::Rcout << "Initializing SAGA gradient table (vectorized)..." << std::endl;
+    arma::cube grad_table(p, K, n);
+    arma::mat grad_avg(p, K);
+    
+    // --- NEW: Fast, Vectorized SAGA Initialization ---
+    arma::mat eta = X * param_y;
+    if (!offset.is_empty()) {
+        eta.each_col() += offset;
     }
+    arma::mat P = rowwise_softmax_baseline(eta);
+    arma::mat E = P;
+    for (int i = 0; i < n; ++i) {
+        if (Y(i) > 0) {
+            E(i, static_cast<int>(Y(i)) - 1) -= 1.0;
+        }
+    }
+    // Efficiently calculate the average gradient
+    grad_avg = X.t() * E / n;
+    // Efficiently populate the gradient table
+    for (int i = 0; i < n; ++i) {
+        grad_table.slice(i) = X.row(i).t() * E.row(i);
+    }
+    // --- End of New Initialization ---
     
-    arma::mat param(p, K);
-    if (param_start.isNotNull()) param = Rcpp::as<arma::mat>(Rcpp::NumericMatrix(param_start));
-    else param.zeros();
+    arma::mat param_y_old = param_y;
+    arma::mat grad_new(p, K), grad_stoch(p, K), param_z_unprox(p, K);
     
-    arma::mat grad(p, K), temp1(p, K), temp2(p, K);
-    arma::mat param_old(p, K), param_unprox(p, K);
-    arma::mat velocity(p, K, arma::fill::zeros);
-    
+    bool converged = false;
+    int convergence_pass = -1;
+    Rcpp::List param_history;
     double diff;
-    int counter_outer = 0;
+    long long max_updates = static_cast<long long>(maxit) * n;
+    if (verbose) Rcpp::Rcout << "Starting optimization for " << maxit << " passes (" << max_updates << " total updates)." << std::endl;
     
-    // Use a single, unified duration for all ramp-up schedules
-    const int ramp_up_duration = 100;
-    
-    while (true) {
-        param_old = param;
-        counter_outer += 1;
+    for (long long k = 0; k < max_updates; ++k) {
+        Rcpp::checkUserInterrupt();
         
-        // --- Dynamic Inner Iteration Schedule ---
-        int current_niter_inner;
-        if (counter_outer < ramp_up_duration) {
-            double start_iter = 0.1 * n;
-            double end_iter = static_cast<double>(niter_inner);
-            if (start_iter > end_iter) start_iter = end_iter;
-            double ramp_fraction = (ramp_up_duration > 1) ? (static_cast<double>(counter_outer - 1) / (ramp_up_duration - 1)) : 1.0;
-            current_niter_inner = static_cast<int>(std::ceil(start_iter + (end_iter - start_iter) * ramp_fraction));
-        } else {
-            current_niter_inner = niter_inner;
+        double gamma_k = (static_cast<double>(k) + v_factor + 4.0) / (2.0 * c_factor * L);
+        double tau_k = 1.0 / (c_factor * L * gamma_k);
+        if (tau_k > 1.0) tau_k = 1.0;
+        
+        param_x = tau_k * param_z + (1.0 - tau_k) * param_y;
+        
+        int index = arma::randi(arma::distr_param(0, n - 1));
+        
+        const double* grad_old_ptr = grad_table.slice_memptr(index);
+        arma::mat grad_old(grad_old_ptr, p, K);
+        
+        grad_multinom_loss2(X.row(index), Y(index), K, offset(index), param_x, p, grad_new);
+        
+        grad_stoch = grad_new - grad_old + grad_avg;
+        
+        grad_table.slice(index) = grad_new;
+        grad_avg += (grad_new - grad_old) / static_cast<double>(n);
+        
+        param_z_unprox = param_z - gamma_k * grad_stoch;
+        apply_proximal_step(param_z, param_z_unprox, gamma_k, reg_p, K, p, transpose, penalty, regul,
+                            grp_id, ncores, lam1, lam2, lam3, pos, grp, grpV, etaG, own_var, N_own_var);
+        
+        param_y = (1.0 - tau_k) * param_y + tau_k * param_z;
+        
+        if ((k + 1) % n == 0) {
+            int current_pass = (k + 1) / n;
+            if (save_history) {
+                param_history.push_back(Rcpp::wrap(param_y));
+            }
+            diff = arma::norm(param_y - param_y_old, "fro") / (arma::norm(param_y_old, "fro") + 1e-10);
+            if (verbose) {
+                Rcpp::Rcout << "Pass " << current_pass << " | Rel.Chg: " << diff << std::endl;
+            }
+            if (diff < tolerance) {
+                if (verbose) Rcpp::Rcout << "Convergence tolerance reached." << std::endl;
+                converged = true;
+                convergence_pass = current_pass;
+                break;
+            }
+            param_y_old = param_y;
         }
-        
-        // --- Dynamic Learning Rate Schedule (Warm-up) ---
-        double current_learning_rate;
-        if (counter_outer < ramp_up_duration) {
-            double start_lr = 0.01 * final_learning_rate; 
-            double ramp_fraction = (ramp_up_duration > 1) ? (static_cast<double>(counter_outer - 1) / (ramp_up_duration - 1)) : 1.0;
-            current_learning_rate = start_lr + (final_learning_rate - start_lr) * ramp_fraction;
-        } else {
-            current_learning_rate = final_learning_rate;
-        }
-        
-        grad.zeros();
-        
-        // --- PERFORMANCE: This loop is the main bottleneck and can be parallelized. ---
-#pragma omp parallel for reduction(+:grad) num_threads(ncores)
-        for (int i = 0; i < n; i++) {
-            arma::mat single_grad(p, K); // Thread-private gradient matrix
-            grad_multinom_loss2(X_eff.row(i), Y(i), K, offset(i), param_old, p, single_grad);
-            grad += single_grad; // OMP reduction handles this safely
-        }
-        if (n > 0) grad /= n;
-        
-        param = param_old;
-        velocity.zeros();
-        
-        for (int i = 0; i < current_niter_inner; ++i) {
-            int index = arma::randi(arma::distr_param(0, n - 1));
-            grad_multinom_loss2(X_eff.row(index), Y(index), K, offset(index), param, p, temp1);
-            grad_multinom_loss2(X_eff.row(index), Y(index), K, offset(index), param_old, p, temp2);
-            arma::mat svr_grad_current = temp1 - temp2 + grad;
-            
-            velocity = momentum_gamma * velocity - current_learning_rate * svr_grad_current;
-            param_unprox = param + velocity;
-            
-            apply_proximal_step(param, param_unprox, current_learning_rate, reg_p, K, p, transpose, penalty, regul,
-                                grp_id, ncores, lam1, lam2, lam3, pos, grp, grpV, etaG, own_var, N_own_var);
-        }
-        
-        diff = arma::norm(param - param_old, "fro") / (arma::norm(param_old, "fro") + 1e-10);
-        
-        if (verbose) {
-            Rcpp::Rcout << "Iteration " << counter_outer << " | LR: " << current_learning_rate << " | Inner Iter: " << current_niter_inner << " | Rel.Chg: " << diff << std::endl;
-        }
-        
-        if (diff < tolerance || counter_outer >= maxit) break;
     }
     
-    Rcpp::List result;
-    if (add_intercept) {
-        arma::mat beta = param.head_rows(p_orig);
-        arma::rowvec intercepts = param.row(p_orig);
-        arma::sp_mat beta_sp(beta);
-        result = Rcpp::List::create(Rcpp::Named("Estimates") = Rcpp::wrap(beta), Rcpp::Named("Intercepts") = intercepts, Rcpp::Named("Sparse Estimates") = beta_sp);
-    } else {
-        arma::sp_mat beta_sp(param);
-        result = Rcpp::List::create(Rcpp::Named("Estimates") = Rcpp::wrap(param), Rcpp::Named("Intercepts") = R_NilValue, Rcpp::Named("Sparse Estimates") = beta_sp);
+    if (!converged) {
+        convergence_pass = maxit;
+    }
+    
+    arma::sp_mat beta_sp(param_y);
+    Rcpp::List result = Rcpp::List::create(
+        Rcpp::Named("Estimates") = Rcpp::wrap(param_y),
+        Rcpp::Named("Sparse Estimates") = beta_sp,
+        Rcpp::Named("Converged") = converged,
+        Rcpp::Named("Convergence Iteration") = convergence_pass
+    );
+    
+    if (save_history) {
+        if (param_history.size() < convergence_pass && param_history.size() < maxit) {
+            param_history.push_back(Rcpp::wrap(param_y));
+        }
+        result["History"] = param_history;
     }
     
     return result;
 }
-
-// Rcpp::List MultinomLogisticAcc(
-//         const arma::mat& X,
-//         const arma::vec& Y,
-//         const arma::vec& offset,
-//         int K,
-//         int reg_p,
-//         int penalty,
-//         std::string regul,
-//         bool transpose,
-//         Rcpp::IntegerVector grp_id,
-//         Rcpp::NumericVector etaG,
-//         const arma::mat& grp,
-//         const arma::mat& grpV,
-//         Rcpp::IntegerVector own_var,
-//         Rcpp::IntegerVector N_own_var,
-//         double lam1,
-//         double lam2,
-//         double lam3,
-//         double learning_rate,
-//         double momentum_gamma,
-//         double tolerance,
-//         int niter_inner,
-//         int maxit,
-//         int ncores,
-//         bool pos,
-//         bool verbose,
-//         Rcpp::Nullable<Rcpp::NumericMatrix> param_start) {
-//     
-//     int p = X.n_cols;
-//     int n = X.n_rows;
-//     
-//     int index;
-//     int y_sample_int;
-//     double o_sample;
-//     
-//     arma::mat grad(p, K);
-//     arma::mat temp1(p, K);
-//     arma::mat temp2(p, K);
-//     
-//     arma::mat param(p, K); 
-//     
-//     if (param_start.isNotNull()) {
-//         Rcpp::NumericMatrix param_start_mat(param_start); 
-//         if (param_start_mat.nrow() != p || param_start_mat.ncol() != K) {
-//             Rcpp::stop("Dimensions of provided 'param_start' matrix must be [X.n_cols x K].");
-//         }
-//         param = Rcpp::as<arma::mat>(param_start_mat);
-//     } else {
-//         param.zeros();
-//     }
-//     
-//     arma::mat param_old(p, K);
-//     
-//     const double beta = 0.5;
-//     const int max_line_search_iter = 100;
-//     
-//     double diff;
-//     int counter_outer = 0;
-//     
-//     while (true) {
-//         param_old = param; 
-//         arma::mat single_grad(p, K);
-//         grad.zeros();
-//         
-//         for (int i = 0; i < n; i++) {
-//             const auto& x_sample_view = X.row(i);
-//             const int& y_val = Y(i); 
-//             const double& o_val = offset(i);
-//             grad_multinom_loss2(x_sample_view, y_val, K, o_val, param_old, p, single_grad);
-//             grad += single_grad;
-//         }
-//         grad /= n;
-//         
-//         for (int i = 0; i < niter_inner; ++i) {
-//             if (n == 0) continue;
-//             index = arma::randi(arma::distr_param(0, n - 1));
-//             const auto& x_sample_view = X.row(index);
-//             y_sample_int = static_cast<int>(Y(index)); 
-//             o_sample = offset(index);
-//             
-//             grad_multinom_loss2(x_sample_view, y_sample_int, K, o_sample, param, p, temp1);
-//             grad_multinom_loss2(x_sample_view, y_sample_int, K, o_sample, param_old, p, temp2);
-//             arma::mat svr_grad_current = temp1 - temp2 + grad;
-//             
-//             double current_lr = learning_rate;
-//             double loss_current = eval_multinom_loss(X, Y, offset, K, param, p, n);
-//             
-//             for (int ls_iter = 0; ls_iter < max_line_search_iter; ++ls_iter) {
-//                 arma::mat param_unprox = param - current_lr * svr_grad_current;
-//                 arma::mat param_candidate = param;
-//                 auto param_unprox_reg_view = param_unprox.head_rows(reg_p);
-//                 
-//                 if (transpose) {
-//                     arma::mat param_t = param_unprox_reg_view.t();
-//                     if (penalty == 1) {
-//                         proximalFlat2(param_t, K, reg_p, regul, grp_id, ncores, lam1 * learning_rate, lam2 * learning_rate, lam3 * learning_rate, pos);
-//                     } else if (penalty == 2) {
-//                         proximalGraph2(param_t, K, reg_p, regul, grp, grpV, etaG, ncores, lam1 * learning_rate, lam2 * learning_rate, pos);
-//                     } else if (penalty == 3) {
-//                         proximalTree2(param_t, K, reg_p, regul, grp, etaG, own_var, N_own_var, ncores, lam1 * learning_rate, lam2 * learning_rate, pos);
-//                     } else if (penalty == 4) { // SCAD
-//                         
-//                         proximalSCAD(
-//                             param_t,
-//                             lam1 * learning_rate, // The lambda parameter
-//                             lam2,                 // The 'a' parameter (e.g., 3.7)
-//                             pos
-//                         );
-//                     }
-//                     param_candidate.head_rows(reg_p) = param_t.t();
-//                 } else { 
-//                     arma::mat param_unprox_reg_copy = param_unprox_reg_view;
-//                     if (penalty == 1) {
-//                         
-//                         proximalFlat2(param_unprox_reg_copy, reg_p, K, regul, grp_id, ncores, lam1 * learning_rate, lam2 * learning_rate, lam3 * learning_rate, pos);
-//                     } else if (penalty == 2) {
-//                         proximalGraph2(param_unprox_reg_copy, reg_p, K, regul, grp, grpV, etaG, ncores, lam1 * learning_rate, lam2 * learning_rate, pos);
-//                     } else if (penalty == 3) {
-//                         proximalTree2(param_unprox_reg_copy, reg_p, K, regul, grp, etaG, own_var, N_own_var, ncores, lam1 * learning_rate, lam2 * learning_rate, pos);
-//                     }else if (penalty == 4) { // SCAD
-//                         proximalSCAD(
-//                             param_unprox_reg_copy,
-//                             lam1 * learning_rate, // The lambda parameter
-//                             lam2,                 // The 'a' parameter (e.g., 3.7)
-//                             pos
-//                         );
-//                     }
-//                     param_candidate.head_rows(reg_p) = param_unprox_reg_copy;
-//                 }
-//                 if (reg_p < p) {
-//                     param_candidate.tail_rows(p - reg_p) = param_unprox.tail_rows(p - reg_p);
-//                 }
-//                 
-//                 double loss_candidate = eval_multinom_loss(X, Y, offset, K, param_candidate, p, n);
-//                 double quadratic_approx_rhs = arma::dot(svr_grad_current, param_candidate - param);
-//                 
-//                 if (loss_candidate <= loss_current - quadratic_approx_rhs + (0.5 / current_lr) * arma::accu(arma::pow(param_candidate - param, 2))) {
-//                     param = param_candidate;
-//                     break; 
-//                 }
-//                 
-//                 current_lr *= beta;
-//                 
-//                 if (ls_iter == max_line_search_iter - 1) {
-//                     break;
-//                 }
-//             }
-//         }
-//         
-//         counter_outer += 1;
-//         niter_inner = static_cast<int>(ceil(static_cast<double>(niter_inner) * 1.25));
-//         
-//         double norm_old = arma::norm(param_old, "fro");
-//         diff = arma::norm(param - param_old, "fro") / (norm_old + 1e-10);
-//         
-//         if (verbose) {
-//             Rcpp::Rcout << "\nIteration " << counter_outer << ", Rel. Change: " << diff << "\n";
-//         }
-//         
-//         if (diff < tolerance || counter_outer >= maxit) {
-//             break;
-//         }
-//     } 
-//     
-//     arma::sp_mat param_sp(param);
-//     Rcpp::List result = Rcpp::List::create(
-//         Rcpp::Named("Estimates") = param,
-//         Rcpp::Named("Sparse Estimates") = param_sp
-//     );
-//     return result;
-// }
-
-
 
 // [[Rcpp::export]]
 Rcpp::List MultinomLogisticSARAH( 
@@ -2378,21 +1116,21 @@ Rcpp::List MultinomLogisticSARAH(
             if (transpose) {
                 param_t = param_reg_view.t(); 
                 if (penalty == 1) {
-                    proximalFlat2(param_t, K, reg_p, regul, grp_id, ncores, lam1 * learning_rate, lam2 * learning_rate, lam3 * learning_rate);
+                    proximalFlat(param_t, K, reg_p, regul, grp_id, ncores, lam1 * learning_rate, lam2 * learning_rate, lam3 * learning_rate);
                 } else if (penalty == 2) {
-                    proximalGraph2(param_t, K, reg_p, regul, grp, grpV, etaG, ncores, lam1 * learning_rate, lam2 * learning_rate);
+                    proximalGraph(param_t, K, reg_p, regul, grp, grpV, etaG, ncores, lam1 * learning_rate, lam2 * learning_rate);
                 } else if (penalty == 3) {
-                    proximalTree2(param_t, K, reg_p, regul, grp, etaG, own_var, N_own_var, ncores, lam1 * learning_rate, lam2 * learning_rate);
+                    proximalTree(param_t, K, reg_p, regul, grp, etaG, own_var, N_own_var, ncores, lam1 * learning_rate, lam2 * learning_rate);
                 }
                 param.head_rows(reg_p) = param_t.t(); 
             } else { 
                 arma::mat param_reg_copy = param_reg_view; // Explicit copy
                 if (penalty == 1) {
-                    proximalFlat2(param_reg_copy, reg_p, K, regul, grp_id, ncores, lam1 * learning_rate, lam2 * learning_rate, lam3 * learning_rate );
+                    proximalFlat(param_reg_copy, reg_p, K, regul, grp_id, ncores, lam1 * learning_rate, lam2 * learning_rate, lam3 * learning_rate );
                 } else if (penalty == 2) {
-                    proximalGraph2(param_reg_copy, reg_p, K, regul, grp, grpV, etaG, ncores, lam1 * learning_rate, lam2 * learning_rate);
+                    proximalGraph(param_reg_copy, reg_p, K, regul, grp, grpV, etaG, ncores, lam1 * learning_rate, lam2 * learning_rate);
                 } else if (penalty == 3) {
-                    proximalTree2(param_reg_copy, reg_p, K, regul, grp, etaG, own_var, N_own_var, ncores, lam1 * learning_rate, lam2 * learning_rate);
+                    proximalTree(param_reg_copy, reg_p, K, regul, grp, etaG, own_var, N_own_var, ncores, lam1 * learning_rate, lam2 * learning_rate);
                 }
                 param.head_rows(reg_p) = param_reg_copy; 
             }
@@ -2473,7 +1211,7 @@ Rcpp::List MultinomLogisticPCD(
         Rcpp::stop("reg_p must be between 0 and p_total.");
     }
     if (penalty_code != 1 && !(regul == "none" || regul == "L0" || regul == "L1" || regul == "L2" || regul == "ElasticNet" || regul == "GroupLasso")) {
-        Rcpp::warning("This PCD implementation primarily supports penalties handled by proximalFlat2. Graph/Tree penalties might not behave as expected without specialized PCD updates.");
+        Rcpp::warning("This PCD implementation primarily supports penalties handled by proximalFlat. Graph/Tree penalties might not behave as expected without specialized PCD updates.");
     }
     
     arma::mat param(p_total, K_classes, arma::fill::zeros);
@@ -2535,12 +1273,12 @@ Rcpp::List MultinomLogisticPCD(
                     n_cols_prox = 1;      // Dimension of param_j_block_for_prox_op
                     
                     if (penalty_code == 1) {
-                        proximalFlat2(param_j_block_for_prox_op, n_rows_prox, n_cols_prox, regul, current_grp_id_for_prox, ncores,
+                        proximalFlat(param_j_block_for_prox_op, n_rows_prox, n_cols_prox, regul, current_grp_id_for_prox, ncores,
                                       lam1 * learning_rate, lam2 * learning_rate, lam3 * learning_rate, pos);
                     } else if (penalty_code == 2) {
-                        proximalGraph2(param_j_block_for_prox_op, n_rows_prox, n_cols_prox, regul, grp_mat, grpV_mat, etaG, ncores, lam1 * learning_rate, lam2 * learning_rate, pos);
+                        proximalGraph(param_j_block_for_prox_op, n_rows_prox, n_cols_prox, regul, grp_mat, grpV_mat, etaG, ncores, lam1 * learning_rate, lam2 * learning_rate, pos);
                     } else if (penalty_code == 3) {
-                        proximalTree2(param_j_block_for_prox_op, n_rows_prox, n_cols_prox, regul, grp_mat, etaG, own_var, N_own_var, ncores, lam1 * learning_rate, lam2 * learning_rate, pos);
+                        proximalTree(param_j_block_for_prox_op, n_rows_prox, n_cols_prox, regul, grp_mat, etaG, own_var, N_own_var, ncores, lam1 * learning_rate, lam2 * learning_rate, pos);
                     }
                     param.row(j_feat) = param_j_block_for_prox_op.t();
                 } else {
@@ -2549,12 +1287,12 @@ Rcpp::List MultinomLogisticPCD(
                     n_cols_prox = K_classes; // Dimension of param_j_block_for_prox_op
                     
                     if (penalty_code == 1) {
-                        proximalFlat2(param_j_block_for_prox_op, n_rows_prox, n_cols_prox, regul, current_grp_id_for_prox, ncores,
+                        proximalFlat(param_j_block_for_prox_op, n_rows_prox, n_cols_prox, regul, current_grp_id_for_prox, ncores,
                                       lam1 * learning_rate, lam2 * learning_rate, lam3 * learning_rate, pos);
                     } else if (penalty_code == 2) {
-                        proximalGraph2(param_j_block_for_prox_op, n_rows_prox, n_cols_prox, regul, grp_mat, grpV_mat, etaG, ncores, lam1 * learning_rate, lam2 * learning_rate, pos);
+                        proximalGraph(param_j_block_for_prox_op, n_rows_prox, n_cols_prox, regul, grp_mat, grpV_mat, etaG, ncores, lam1 * learning_rate, lam2 * learning_rate, pos);
                     } else if (penalty_code == 3) {
-                        proximalTree2(param_j_block_for_prox_op, n_rows_prox, n_cols_prox, regul, grp_mat, etaG, own_var, N_own_var, ncores, lam1 * learning_rate, lam2 * learning_rate, pos);
+                        proximalTree(param_j_block_for_prox_op, n_rows_prox, n_cols_prox, regul, grp_mat, etaG, own_var, N_own_var, ncores, lam1 * learning_rate, lam2 * learning_rate, pos);
                     }
                     param.row(j_feat) = param_j_block_for_prox_op;
                 }
@@ -2635,7 +1373,7 @@ bool check_kkt_for_activation(
 // Ensure these are your actual working implementations (e.g., _nospams or SPAMS wrappers)
 void proximalFlat3(arma::mat& U, int n_r, int n_c, const std::string& reg, const Rcpp::IntegerVector& g_id, int ncrs, double eff_lam1, double eff_lam2, double eff_lam3, bool pos_flag) {
     // Example: if (reg == "L1") { U = arma::sign(U) % arma::max(arma::abs(U) - eff_lam1, arma::zeros(U.n_rows, U.n_cols)); } ...
-    // Rcpp::Rcout << "Warning: proximalFlat2 called but using placeholder logic." << std::endl; // Placeholder
+    // Rcpp::Rcout << "Warning: proximalFlat called but using placeholder logic." << std::endl; // Placeholder
     if (reg == "L1" || reg == "ElasticNet" || reg == "elastic-net") {
         if (eff_lam1 > 0.0) U = arma::sign(U) % arma::max(arma::abs(U) - eff_lam1, arma::zeros(U.n_rows, U.n_cols));
     }
@@ -2752,14 +1490,14 @@ void proximalFlat3(arma::mat& U, int n_r, int n_c, const std::string& reg, const
 //                 if (transpose_prox_input) { 
 //                     param_j_block_for_prox_op = Bj_unprox.t(); int nr=K_classes, nc=1;
 //                     if(penalty_code==1) proximalFlat3(param_j_block_for_prox_op,nr,nc,regul,current_grp_id_for_prox,ncores,eff_lam1,eff_lam2,eff_lam3,pos);
-//                     // else if(penalty_code==2) proximalGraph2(param_j_block_for_prox_op,nr,nc,regul,grp_mat,grpV_mat,etaG,ncores,eff_lam1,eff_lam2,pos);
-//                     // else if(penalty_code==3) proximalTree2(param_j_block_for_prox_op,nr,nc,regul,grp_mat,etaG,own_var,N_own_var,ncores,eff_lam1,eff_lam2,pos);
+//                     // else if(penalty_code==2) proximalGraph(param_j_block_for_prox_op,nr,nc,regul,grp_mat,grpV_mat,etaG,ncores,eff_lam1,eff_lam2,pos);
+//                     // else if(penalty_code==3) proximalTree(param_j_block_for_prox_op,nr,nc,regul,grp_mat,etaG,own_var,N_own_var,ncores,eff_lam1,eff_lam2,pos);
 //                     param.row(j_feat) = param_j_block_for_prox_op.t();
 //                 } else { 
 //                     param_j_block_for_prox_op = Bj_unprox; int nr=1, nc=K_classes;
 //                     if(penalty_code==1) proximalFlat3(param_j_block_for_prox_op,nr,nc,regul,current_grp_id_for_prox,ncores,eff_lam1,eff_lam2,eff_lam3,pos);
-//                     // else if(penalty_code==2) proximalGraph2(param_j_block_for_prox_op,nr,nc,regul,grp_mat,grpV_mat,etaG,ncores,eff_lam1,eff_lam2,pos);
-//                     // else if(penalty_code==3) proximalTree2(param_j_block_for_prox_op,nr,nc,regul,grp_mat,etaG,own_var,N_own_var,ncores,eff_lam1,eff_lam2,pos);
+//                     // else if(penalty_code==2) proximalGraph(param_j_block_for_prox_op,nr,nc,regul,grp_mat,grpV_mat,etaG,ncores,eff_lam1,eff_lam2,pos);
+//                     // else if(penalty_code==3) proximalTree(param_j_block_for_prox_op,nr,nc,regul,grp_mat,etaG,own_var,N_own_var,ncores,eff_lam1,eff_lam2,pos);
 //                     param.row(j_feat) = param_j_block_for_prox_op;
 //                 }
 //             } 

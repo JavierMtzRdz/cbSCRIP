@@ -4,7 +4,17 @@
 \alias{create_lambda_grid}
 \title{Generate a Lambda Grid for Regularization}
 \usage{
-create_lambda_grid(lambda_max, epsilon, nlambda, regularization)
+create_lambda_grid(
+  cb_data,
+  lambda,
+  nlambda,
+  lambda_max,
+  lambda.min.ratio,
+  regularization,
+  alpha,
+  n_unpenalized,
+  ...
+)
 }
 \value{
 A numeric vector of lambda values.
