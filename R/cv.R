@@ -10,19 +10,13 @@
 prepare_penalty_params <- function(regularization, lambda, alpha) {
     # Ensure regularization is a character string
     if (!is.character(regularization) || length(regularization) != 1) {
-        cli::cli_abort("Argument 'regularization' must be a single string, like 'elastic-net' or 'SCAD'.")
     }
     switch(
         regularization,
         `elastic-net` = {
             # Default alpha for elastic-net is 0.5
             if (is.null(alpha)) {
-                cli::cli_inform("Using default alpha = 0.5 for elastic-net.")
                 alpha <- 0.5
-            }
-            # Validate alpha range
-            if (alpha < 0 || alpha > 1) {
-                cli::cli_abort("'alpha' for elastic-net must be between 0 and 1.")
             }
             
             list(lambda1 = lambda * alpha, 
@@ -32,16 +26,50 @@ prepare_penalty_params <- function(regularization, lambda, alpha) {
         
         SCAD = {
             # Default 'a' parameter for SCAD is 3.7
-            if (is.null(alpha) || alpha < 2) {
-                cli::cli_inform("Using default alpha (shape parameter) = 3.7 for SCAD.")
+            if (is.null(alpha))  {
                 alpha <- 3.7 
+                
+            } else if (alpha < 2)  {
+                alpha <- 3.7 
+                
             }
             # Return lambda and the shape parameter
             list(lambda1 = lambda, lambda2 = alpha)
         },
         
-        # Default case: executed if 'regularization' does not match any named cases
-        cli::cli_abort("Invalid regularization specified. Use 'elastic-net' or 'SCAD'.")
+        
+    )
+}
+
+penalty_params_notif <- function(regularization, alpha) {
+    # Ensure regularization is a character string
+    if (!is.character(regularization) || length(regularization) != 1) {
+        cli::cli_abort("Argument 'regularization' must be a single string, like 'elastic-net' or 'SCAD'.")
+    }
+    switch(
+        regularization,
+        `elastic-net` = {
+            # Default alpha for elastic-net is 0.5
+            if (is.null(alpha)) {
+                cli::cli_inform("Using default alpha = 0.5 for elastic-net.")
+            } else if (alpha < 0 || alpha > 1) {
+                cli::cli_abort("'alpha' for elastic-net must be between 0 and 1.")
+            }
+            
+        },
+        
+        
+        SCAD = {
+            if (is.null(alpha))  {
+                cli::cli_inform("Using default alpha (shape parameter) = 3.7 for SCAD.")
+                
+            } else if (alpha < 2)  {
+                cli::cli_inform("Using default alpha (shape parameter) = 3.7 for SCAD.")
+                
+            }
+        },
+        
+        
     )
 }
 
@@ -100,23 +128,35 @@ create_cb_data <- function(formula, data, ratio = 20, ratio_event = 1) {
     
     prob_select <- time / B
     sampled_indices <- sample(n, size = b_size, replace = TRUE, prob = prob_select)
-    
-    time_bseries <- runif(b_size) * time[sampled_indices]
-    cov_bseries <- cov_matrix[sampled_indices, , drop = FALSE]
-    event_bseries <- rep(0, b_size) # Event is always 0 for base series
-    
-    # Extract Case Series (all non-censored events)
     case_indices <- which(status != 0)
-    time_cseries <- time[case_indices]
-    cov_cseries <- cov_matrix[case_indices, , drop = FALSE]
-    event_cseries <- status[case_indices]
     
     # Combine and return
+    n_b <- length(sampled_indices)
+    n_c <- length(case_indices)
+    total_rows <- n_b + n_c
+    
+    # 1. Pre-allocate the final objects with the correct size and type
+    final_time <- numeric(total_rows)
+    final_event <- numeric(total_rows)
+    final_covs <- matrix(0, nrow = total_rows, ncol = ncol(cov_matrix))
+    colnames(final_covs) <- colnames(cov_matrix)
+    
+    # 2. Fill the first part (base series)
+    final_time[1:n_b] <- runif(n_b) * time[sampled_indices]
+    final_event[1:n_b] <- 0 # Event is 0 for base series
+    final_covs[1:n_b, ] <- cov_matrix[sampled_indices, , drop = FALSE]
+    
+    # 3. Fill the second part (case series)
+    final_time[(n_b + 1):total_rows] <- time[case_indices]
+    final_event[(n_b + 1):total_rows] <- status[case_indices]
+    final_covs[(n_b + 1):total_rows, ] <- cov_matrix[case_indices, , drop = FALSE]
+    
+    # 4. Return the pre-allocated and filled list
     list(
-        time = c(time_bseries, time_cseries),
-        event = c(event_bseries, event_cseries),
-        covariates = rbind(cov_bseries, cov_cseries),
-        offset = rep(offset, length(time_bseries) + length(time_cseries))
+        time = final_time,
+        event = final_event,
+        covariates = final_covs,
+        offset = rep(offset, total_rows)
     )
 }
 
@@ -135,11 +175,15 @@ create_cb_data <- function(formula, data, ratio = 20, ratio_event = 1) {
 #' @param standardize Logical. If TRUE, covariates are scaled to have mean 0 and SD 1.
 #' @return The fitted model object from the specified `fit_fun`.
 #' @export
-fit_cb_model <- function(cb_data, regularization = c('elastic-net', 'SCAD'), lambda, alpha = NULL,
+fit_cb_model <- function(cb_data,
+                         regularization = c('elastic-net', 'SCAD'), 
+                         lambda, alpha = NULL,
                          fit_fun = mtool::mtool.MNlogistic,
                          param_start = NULL,
+                         n_unpenalized = 2,
                          standardize = TRUE, # Default to TRUE as it's best practice
-                         all_event_levels = NULL) {
+                         all_event_levels = NULL,
+                         ...) {
     
     regularization <- rlang::arg_match(regularization)
     penalty_params <- prepare_penalty_params(regularization, lambda, alpha)
@@ -148,46 +192,57 @@ fit_cb_model <- function(cb_data, regularization = c('elastic-net', 'SCAD'), lam
     Y_factor <- factor(cb_data$event, levels = all_event_levels)
     
     # --- Standardization Logic ---
+    cb_data$time
     penalized_covs <- cb_data$covariates
     scaler <- NULL
     if (standardize) {
-        scaler_obj <- scale(penalized_covs)
-        penalized_covs <- as.matrix(scaler_obj)
-        scaler <- list(
-            center = attr(scaler_obj, "scaled:center"),
-            scale = attr(scaler_obj, "scaled:scale")
-        )
+        # Initial calculation of center and scale
+        center <- colMeans(penalized_covs, na.rm = TRUE)
+        scale <- apply(penalized_covs, 2, sd, na.rm = TRUE)
         
-        # Prevent division by zero for constant variables
-        if (any(scaler$scale == 0, na.rm = TRUE)) {
+        # Check for zero variance
+        if (any(scale == 0, na.rm = TRUE)) {
             cli::cli_warn("Some covariates have zero variance and were not scaled.")
-            scaler$scale[scaler$scale == 0] <- 1
-            
-            penalized_covs <- scale(cb_data$covariates, 
-                                    center = scaler$center,
-                                    scale = scaler$scale)
+            scale[scale == 0] <- 1
         }
+        penalized_covs <- scale(penalized_covs, center = center, scale = scale)
+        scaler <- list(center = center, scale = scale)
+        
+        if(!is.null(param_start)){
+            
+            original_cov_coefs <- param_start[1:ncol(penalized_covs), , drop = FALSE]
+            
+            intercept_adjustment <- crossprod(scaler$center, original_cov_coefs)
+            param_start[ncol(penalized_covs) + 1, ] <- param_start[ncol(penalized_covs) + 1, ] + intercept_adjustment
+            
+            param_start_scaled <- sweep(original_cov_coefs, 1, scaler$scale, FUN = "*")
+            
+            param_start[1:ncol(penalized_covs), ] <- param_start_scaled
+        }
+        
     }
+    
+    X <- model.matrix(~., 
+                      data = data.frame(cbind(penalized_covs, 
+                                              time = log(cb_data$time))))
+    
+    X <- cbind(X[,-1], X[,1])
     
     # Build design matrix
-    X <- as.matrix(cbind(penalized_covs, time = log(cb_data$time), 1))
+    # X <- as.matrix(cbind(penalized_covs, time = log(cb_data$time), 1))
     
     opt_args <- list(X = X, Y = Y_factor, offset = cb_data$offset,
-                     N_covariates = 2, # Hardcoded to 2 for intercept and log(time)
+                     N_covariates = n_unpenalized, # Hardcoded to 2 for intercept and log(time)
                      regularization = regularization,
                      transpose = FALSE, lambda1 = penalty_params$lambda1,
-                     lambda2 = penalty_params$lambda2, lambda3 = 0)
-    
-    if (!is.null(param_start)) {
-        opt_args$param_start <- as.matrix(param_start)
-    }
+                     lambda2 = penalty_params$lambda2, lambda3 = 0,
+                     param_start = param_start,
+                     ...)
     
     fit <- do.call(fit_fun, opt_args)
     
     # --- Coefficient Re-scaling ---
     if (standardize) {
-        cli::cli_alert_info("Re-scaling coefficients back to the original data scale.")
-        
         # Re-scale both dense and sparse coefficient matrices
         for (coef_type in c("coefficients", "coefficients_sparse")) {
             if (!is.null(fit[[coef_type]])) {
@@ -215,12 +270,13 @@ fit_cb_model <- function(cb_data, regularization = c('elastic-net', 'SCAD'), lam
                 rownames(coefs_orig) <- c(colnames(cb_data$covariates), "log(time)", "(Intercept)")
                 
                 # Replace the coefficients in the fit object
-                fit[[coef_type]] <- coefs_orig
+                fit[[coef_type]] <- round(coefs_orig, 8)
             }
         }
+        # Return the fit (with original-scale coefficients) and the scaler
+        return(c(fit, scaler = list(scaler)))
     }
-    # Return the fit (with original-scale coefficients) and the scaler
-    return(c(fit, scaler = list(scaler)))
+    return(fit)
 }
 
 #' Calculate Multinomial Deviance for a Fitted Case-Base Model
@@ -254,138 +310,287 @@ calc_multinom_deviance <- function(cb_data, fit_object, all_event_levels) {
 #' Find the Maximum Lambda (lambda_max)
 #' @param ... Other arguments passed to find_lambda_max.
 #' @return The estimated lambda_max value.
-find_lambda_max <- function(cb_data, n_unpenalized, 
-                            n_event_types, ncores, 
-                            fit_fun, 
+find_lambda_max <- function(cb_data,
+                            n_unpenalized,
+                            alpha,
+                            regularization,
                             ...) {
-    cli::cli_alert_info("Searching for optimal lambda_max (first round)...")
+    
+    
+    # The number of non-zero coefficients in a null model (intercepts only).
+    n_event_types <- length(unique(cb_data$event))
     null_model_coefs <- n_unpenalized * (n_event_types - 1)
-    search_grid <- c(2, 1.5, 1.1, 0.8, 0.5, 0.25, 0.1, 0.08, 0.07, 0.05, 0.01, 0.005)
-    search_grid <-exp(seq(log(2.5), log(0.005), length.out = 10))
+    # A wide grid to search for the general location of lambda_max.
+    search_grid <- round(exp(seq(log(10), log(0.005), length.out = 10)), 6)
     
-    fit_results <-  pbmcapply::pbmclapply(search_grid, 
-                                          function(lambda_val) {
-                                              # We only care about the fit object here
-                                              fit_cb_model(cb_data, lambda = lambda_val,
-                                                           fit_fun = fit_fun,
-                                                           ...)$no_non_zero
-                                          }, mc.cores = ncores)
+    # Main Logic with Progress Bar
+    progressr::handlers("cli")
     
-    
-    non_zero_counts <- unlist(fit_results)
-    
-    upper_idx <- which(non_zero_counts <= null_model_coefs)
-    lower_idx <- which(non_zero_counts > null_model_coefs)
-    
-    if (length(upper_idx) == 0 || length(lower_idx) == 0) {
-        cli::cli_warn("Could not bracket lambda_max with the initial grid. Using largest value.")
-        return(max(search_grid))
-    }
-    
-    upper_bound <- min(search_grid[upper_idx])
-    lower_bound <- max(search_grid[lower_idx])
-    
-    fine_grid <- seq(lower_bound, upper_bound, length.out = 10)
-    
-    cli::cli_alert_info("Searching for optimal lambda_max (second round)...")
-    
-    fine_results <- pbmcapply::pbmclapply(fine_grid, function(lambda_val) {
-        fit_cb_model(cb_data, lambda = lambda_val,
-                     fit_fun = fit_fun,
-                     ...)$no_non_zero
-    }, mc.cores = ncores)
-    
-    lambda_max <- fine_grid[which.min(unlist(fine_results))]
+    with_progress({
+        fine_grid_size <- 5
+        
+        p <- progressr::progressor(steps = length(search_grid) + fine_grid_size)
+        
+        # Helper function to fit the model and advance the progress bar.
+        # This avoids repeating the fit_cb_model call.
+        fit_and_get_count <- function(lambda_val) {
+            fit_model <- fit_cb_model(
+                cb_data,
+                lambda = lambda_val,
+                regularization = regularization,
+                alpha = alpha,
+                n_unpenalized = n_unpenalized,
+                ...
+            )
+            result <- sum(!same(fit_model$coefficients_sparse, 0))
+            
+            p()
+            
+            return(result)
+        }
+        
+        # --- First, Coarse Search ---
+        cli::cli_alert_info("Searching for lambda_max (coarse grid)...")
+        coarse_results <- furrr::future_map_dbl(
+            .x = search_grid,
+            .f = fit_and_get_count,
+            .options = furrr::furrr_options(seed = TRUE)
+        )
+        
+        # --- Bracket the optimal lambda ---
+        # Find lambdas that result in a null model (or simpler).
+        upper_idx <- which(coarse_results <= null_model_coefs)
+        # Find lambdas that result in a more complex model.
+        lower_idx <- which(coarse_results > null_model_coefs)
+        
+        # Handle cases where the grid is too narrow.
+        if (length(upper_idx) == 0 || length(lower_idx) == 0) {
+            cli::cli_warn("Could not bracket lambda_max with the initial grid. Using largest value.")
+            
+            p(steps = fine_grid_size)
+            
+            return(max(search_grid))
+        }
+        
+        # Define the bounds for the finer search.
+        upper_bound <- min(search_grid[upper_idx])
+        lower_bound <- max(search_grid[lower_idx])
+        
+        # Finer Search ---
+        fine_grid <- round(seq(lower_bound, upper_bound, length.out = fine_grid_size), 6)
+        cli::cli_alert_info("Searching for lambda_max (fine grid)...")
+        fine_results <- furrr::future_map_dbl(
+            .x = fine_grid,
+            .f = fit_and_get_count, # Use the same helper function
+            .options = furrr::furrr_options(seed = TRUE)
+        )
+        
+        # Identify the first lambda in the fine grid that produces a null model.
+        # This is our best estimate for lambda_max.
+        first_null_model_idx <- which(fine_results <= null_model_coefs)[1]
+        lambda_max <- fine_grid[first_null_model_idx]
+        
+        # Fallback if the fine search fails for some reason.
+        if (is.na(lambda_max)) {
+            cli::cli_warn("Fine grid search failed to find a suitable lambda_max. Returning upper bound.")
+            return(upper_bound)
+        }
+    }) # End of with_progress block.
+    lambda_max<- lambda_max*1.2
     cli::cli_alert_success("Found lambda_max: {round(lambda_max, 4)}")
     return(lambda_max)
 }
 
 #' Generate a Lambda Grid for Regularization
 #' @return A numeric vector of lambda values.
-create_lambda_grid <- function(lambda_max, epsilon, nlambda, regularization) {
-    if (regularization == "elastic-net") {
-        rev(exp(seq(log(lambda_max * epsilon), log(lambda_max), length.out = nlambda)))
-    } else {
-        rev(seq(lambda_max * epsilon, lambda_max, length.out = nlambda))
-    }
+create_lambda_grid <- function(cb_data,
+                               lambda,
+                               nlambda,
+                               lambda_max,
+                               lambda.min.ratio,
+                               regularization,
+                               alpha,
+                               n_unpenalized,
+                               ...){
+    
+    if(is.null(lambda)){
+        
+        penalty_params_notif(regularization = regularization,
+                             alpha = alpha)
+        
+        if(is.null(lambda_max)){
+            lambda_max <- find_lambda_max(
+                cb_data,
+                regularization = regularization,
+                alpha = alpha,
+                n_unpenalized = n_unpenalized,
+                ...)
+            
+            grid <- rev(exp(seq(log(lambda_max * lambda.min.ratio), 
+                                log(lambda_max), length.out = nlambda)))
+            
+        }} else {
+            
+            grid <- sort(unique(lambda[lambda >= 0]), decreasing = TRUE) 
+            
+            if(length(grid) == 0) cli::cli_abort("Provided lambda values invalid.")
+            
+            
+        }
+    
+    cli::cli_alert_info("Using {length(grid)} lambdas. Range: {signif(min(grid), 3)} to {signif(max(grid), 3)}")
+    
+    return(round(grid, 5))
 }
 
 #' Run a Single Fold of Cross-Validation
 #' @return A vector of multinomial deviances for the fold.
-run_cv_fold <- function(fold_indices, cb_data, lambdagrid, all_event_levels, ...) {
-    # 1. Split data into training and validation folds (on their original scale)
+run_cv_fold <- function(fold_indices, cb_data, 
+                        lambdagrid, 
+                        all_event_levels,
+                        regularization,
+                        alpha,
+                        n_unpenalized = 2,
+                        warm_start = T,
+                        update_f = NULL,
+                        ...) {
+    # 1. Split data into training and validation folds
     train_cv_data <- lapply(cb_data, function(x) if(is.matrix(x)) x[-fold_indices, , drop = FALSE] else x[-fold_indices])
     test_cv_data  <- lapply(cb_data, function(x) if(is.matrix(x)) x[fold_indices, , drop = FALSE] else x[fold_indices])
     
-    # Iterate over lambda grid
-    sapply(lambdagrid, function(lambda) {
-        # Fit model on the training fold. Internal standardization occurs, but the
-        # returned coefficients in model_info are on the original scale.
+    # 2. Initialize for loop
+    deviances <- numeric(length(lambdagrid))
+    non_zero <- numeric(length(lambdagrid))
+    
+    param_start <- NULL # Cold start for the first lambda
+    # 3. Iterate over lambda grid with a for loop to enable warm starts
+    for (i in seq_along(lambdagrid)) {
         model_info <- fit_cb_model(
             train_cv_data,
-            lambda = lambda,
+            lambda = lambdagrid[i],
             all_event_levels = all_event_levels,
+            regularization = regularization,
+            alpha = alpha,
+            param_start = param_start, # Pass warm start
+            n_unpenalized = n_unpenalized,
             ...
         )
         
-        # Calculate deviance on the original, unscaled test fold.
-        # This works because the coefficients have been re-scaled to match.
-        calc_multinom_deviance(
+        # Calculate deviance on the original, unscaled test fold
+        deviances[i] <- calc_multinom_deviance(
             test_cv_data,
-            model_info,
+            model_info, # Contains re-scaled coefficients
             all_event_levels = all_event_levels
         )
-    })
+        
+        non_zero[i] <- sum(!same(model_info$coefficients_sparse, 0))
+        
+        update_f()
+        
+        # Update the warm start for the next iteration
+        if(warm_start) param_start <- model_info$coefficients
+    }
+    
+    return(list(deviances = deviances,
+                non_zero = non_zero))
 }
 
 
 #' Cross-Validation for Penalized Multinomial Case-Base Models
 #' @return An object of class `cb.cv` containing the results.
 #' @export
-cv_cb_model <- function(formula, data, regularization = 'elastic-net', alpha = 0.5,
-                        nfold = 5, nlambda = 50, ncores = parallel::detectCores() / 2,
-                        fit_fun = mtool::mtool.MNlogistic, 
-                        ratio = 20, ratio_event = 1,
-                        ...) {
+cv_cbSCRIP <- function(formula, data, regularization = 'elastic-net',
+                       cb_data = NULL,
+                       alpha = NULL,
+                       lambda = NULL,
+                       nfold = 5, nlambda = 50, 
+                       ncores = parallel::detectCores() / 2,
+                       n_unpenalized = 2,
+                       ratio = 50, ratio_event = 1,
+                       lambda_max = NULL,
+                       lambda.min.ratio = ifelse(nobs < nvars, 0.01, 1e-03),
+                       warm_start = T,
+                       ...) {
     
-    cb_data <- create_cb_data(formula, data, ratio = ratio,
-                              ratio_event = ratio_event)
+    if(is.null(cb_data)){
+        cb_data <- create_cb_data(formula, data, ratio = ratio,
+                                  ratio_event = ratio_event)
+    }
     
     all_event_levels <- sort(unique(cb_data$event))
+    
     n_event_types <- length(all_event_levels)
-    n_unpenalized <- 2 # Intercept and log(time)
+    nobs <- length(cb_data$event)
+    nvars <- ncol(cb_data$covariates)
     
-    lambda_max <- find_lambda_max(cb_data, 
-                                  regularization = regularization, alpha = alpha,
-                                  n_unpenalized = n_unpenalized, n_event_types = n_event_types,
-                                  ncores = ncores,
-                                  fit_fun = fit_fun,
-                                  ...)
+    if (ncores > 1) {
+        future::plan(multisession, workers = ncores)
+    } else {
+        future::plan(sequential)
+    }
     
-    lambdagrid <- create_lambda_grid(lambda_max, epsilon = 0.001, nlambda = nlambda, regularization)
+    on.exit(future::plan(future::sequential), add = TRUE)
+    
+    lambdagrid <- create_lambda_grid(cb_data = cb_data,
+                                     lambda = lambda,
+                                     nlambda = nlambda,
+                                     lambda_max = lambda_max,
+                                     lambda.min.ratio = lambda.min.ratio,
+                                     regularization = regularization,
+                                     alpha = alpha,
+                                     n_unpenalized = n_unpenalized,
+                                     ...)
     
     folds <- caret::createFolds(factor(cb_data$event), k = nfold, list = TRUE)
     cli::cli_alert_info("Starting {nfold}-fold cross-validation...")
     
-    deviance_matrix <- pbmcapply::pbmclapply(folds, run_cv_fold,
-                                             cb_data = cb_data,
-                                             lambdagrid = lambdagrid,
-                                             regularization = regularization,
-                                             alpha = alpha,
-                                             all_event_levels = all_event_levels,
-                                             fit_fun = fit_fun,
-                                             ...,
-                                             mc.cores = ncores
-    )
+    # progressr::handlers(global = TRUE)
+    progressr::handlers("cli")
+    # on.exit(progressr::handlers(global = FALSE), add = TRUE)
+    
+    with_progress({
+        p <- progressr::progressor(steps = nfold * nlambda)
+        
+        fold_list <- furrr::future_map(
+            .x = folds, 
+            .f = function(fold) {
+                res <- run_cv_fold(
+                    fold_indices = fold,
+                    cb_data = cb_data,
+                    lambdagrid = lambdagrid,
+                    n_unpenalized = n_unpenalized,
+                    regularization = regularization,
+                    alpha = alpha,
+                    all_event_levels = all_event_levels,
+                    update_f = p,
+                    ...
+                )
+                return(res)
+            },
+            .options = furrr::furrr_options(seed = TRUE)
+        )
+    })
+    
+    deviance_matrix <- lapply(fold_list, function(.x){.x$deviances})
+    
+    coeffs_list <- lapply(fold_list, function(.x){.x$coeffs})
     
     deviance_matrix <- do.call(cbind, deviance_matrix)
     
+    # rownames(deviance_matrix) <- lambdagrid
+    
+    non_zero_matrix <- lapply(fold_list, function(.x){.x$non_zero})
+    
+    non_zero_matrix <- do.call(cbind, non_zero_matrix)
+    
     mean_dev <- rowMeans(deviance_matrix)
+    
     se_dev <- apply(deviance_matrix, 1, sd) / sqrt(nfold)
     
     lambda.min <- lambdagrid[which.min(mean_dev)]
     
     min_dev_upper_bound <- min(mean_dev) + se_dev[which.min(mean_dev)]
+    
     lambda.1se <- max(lambdagrid[mean_dev <= min_dev_upper_bound])
     
     fit.min <- fit_cb_model(
@@ -393,173 +598,115 @@ cv_cb_model <- function(formula, data, regularization = 'elastic-net', alpha = 0
         regularization = regularization,
         lambda = lambda.min,
         alpha = alpha,
-        fit_fun = fit_fun,
+        n_unpenalized = n_unpenalized,
         ...
     )
     
     result <- list(
         fit.min = fit.min,
         lambdagrid = lambdagrid,
+        deviance_matrix = deviance_matrix,
+        non_zero_matrix = non_zero_matrix,
         deviance_mean = mean_dev,
         deviance_se = se_dev,
         lambda.min = lambda.min,
         lambda.1se = lambda.1se,
+        cb_data = cb_data,
         call = match.call()
     )
     
-    class(result) <- "cb.cv"
+    class(result) <- "cbSCRIP.cv"
     cli::cli_alert_success("Cross-validation complete.")
     return(result)
 }
 
-#' Plot Cross-Validation Results
-#' @return A ggplot object.
-#' @export
-plot.cb.cv <- function(x, ...) {
-    plot_data <- data.frame(
-        lambda = x$lambdagrid,
-        mean_dev = x$deviance_mean,
-        upper = x$deviance_mean + x$deviance_se,
-        lower = x$deviance_mean - x$deviance_se
-    )
-    
-    ggplot(plot_data, aes(x = lambda, y = mean_dev)) +
-        geom_errorbar(aes(ymin = lower, ymax = upper), 
-                      width = 0.05, 
-                      color = "grey80") +
-        geom_point(color = "red") +
-        geom_vline(xintercept = x$lambda.min, linetype = "dashed",
-                   color = "blue") +
-        geom_vline(xintercept = x$lambda.1se, linetype = "dotted",
-                   color = "purple") +
-        labs(
-            x = "Lambda",
-            y = "Multinomial Deviance",
-            title = "Cross-Validation Performance",
-            subtitle = "Blue: Lambda.min | Purple: Lambda.1se"
-        ) +
-        scale_x_log10() +
-        theme_minimal()
-}
 
-
-#' Fit a Penalized Multinomial Model over a Regularization Path (Updated)
+#' Fit a Penalized Multinomial Model over a Regularization Path
 #'
-#' Fits the case-base model for a sequence of lambda values and returns the
-#' path of coefficients. Includes a progress bar for single-core execution.
+#' Fits the case-base model for a sequence of lambda values using warm starts,
+#' returning the path of coefficients. Includes a progress bar.
 #'
-#' @param formula A survival formula, e.g., `Surv(time, event) ~ .`.
-#' @param data The training dataframe.
-#' @param regularization Penalty type ('elastic-net' or 'SCAD').
-#' @param alpha The elastic-net mixing parameter.
-#' @param nlambda The number of lambda values to generate for the path.
-#' @param ncores The number of CPU cores to use for parallel processing.
-#' @param ... Additional arguments passed to `fit_cb_model` and `create_cb_data`.
-#'
-#' @return An object of class `cb.path` containing the coefficient paths.
+#' @inheritParams cv_cb_model
+#' @return An object of class `cb.path` containing coefficient paths.
 #' @export
-path_cb_model <- function(formula, data, regularization = 'elastic-net', alpha = 0.5,
-                          nlambda = 100, ncores = 1,
-                          ...) {
+cbSCRIP <- function(formula, data, regularization = 'elastic-net', 
+                    cb_data = NULL,
+                    alpha = NULL,
+                    lambda = NULL,
+                    nlambda = 100, n_unpenalized = 2,
+                    ratio = 50, ratio_event = 1,
+                    lambda_max = NULL,
+                    lambda.min.ratio = ifelse(nobs < nvars, 0.01, 1e-03),
+                    warm_start = T,
+                    ...) {
     
     # 1. Create the full case-base dataset once
     cli::cli_alert_info("Creating case-base dataset...")
-    cb_data <- create_cb_data(formula, data, ...)
+    
+    if(is.null(cb_data)){
+        cb_data <- create_cb_data(formula, data, ratio = ratio,
+                                  ratio_event = ratio_event)
+    }
     
     all_event_levels <- sort(unique(cb_data$event))
+    
     n_event_types <- length(all_event_levels)
-    n_unpenalized <- 2 # Intercept and log(time)
     
-    # 2. Determine the lambda grid for the path
-    lambda_max <- find_lambda_max(cb_data, regularization = regularization, alpha = alpha,
-                                  n_unpenalized = n_unpenalized, n_event_types = n_event_types,
-                                  ncores = ncores, all_event_levels = all_event_levels, ...)
+    nobs <- length(cb_data$event)
     
-    lambdagrid <- create_lambda_grid(lambda_max, epsilon = 0.005, nlambda = nlambda, regularization)
+    nvars <- ncol(cb_data$covariates)
     
-    # 3. Fit the model for each lambda value
-    cli::cli_alert_info("Fitting model for {nlambda} lambda values...")
+    lambdagrid <- create_lambda_grid(cb_data = cb_data,
+                                     lambda = lambda,
+                                     nlambda = nlambda,
+                                     lambda_max = lambda_max,
+                                     lambda.min.ratio = lambda.min.ratio,
+                                     regularization = regularization,
+                                     alpha = alpha,
+                                     n_unpenalized = n_unpenalized,
+                                     ...)
+    nlambda <- length(lambdagrid)
     
-    fit_lambda <- function(lambda) {
-        fit_cb_model(
-            cb_data,
+    # 3. Fit the model for each lambda value using warm starts
+    cli::cli_alert_info("Fitting model path for {nlambda} lambda values...")
+    
+    path_fits <- vector("list", nlambda)
+    
+    param_start <- NULL # Cold start for the first lambda
+    
+    cli::cli_progress_bar("Fitting Path", total = nlambda)
+    for (i in seq_along(lambdagrid)) {
+        
+        model_info <- fit_cb_model(
+            cb_data = cb_data,
+            lambda = lambdagrid[i],
             regularization = regularization,
-            lambda = lambda,
             alpha = alpha,
-            all_event_levels = all_event_levels,
-            standardize = TRUE,
+            n_unpenalized = n_unpenalized,
+            param_start = param_start, # Pass warm start
             ...
         )
+        path_fits[[i]] <- model_info
+        
+        # Update the warm start for the next iteration
+        if(warm_start) param_start <- model_info$coefficients
+        
+        cli::cli_progress_update()
     }
-    
-    if (ncores > 1) {
-        cli::cli_alert_info("Running on {ncores} cores. Progress bar is disabled.")
-        path_fits <- mclapply(lambdagrid, fit_lambda, mc.cores = ncores)
-    } else {
-        path_fits <- vector("list", nlambda)
-        cli::cli_progress_bar("Fitting Path", total = nlambda)
-        for (i in seq_along(lambdagrid)) {
-            path_fits[[i]] <- fit_lambda(lambdagrid[[i]])
-            cli::cli_progress_update()
-        }
-    }
-    
     # 4. Extract the re-scaled coefficients from each fit
-    coefficients <- map(path_fits, ~.x$fit$coefficients)
-    coefficients_sparse <- map(path_fits, ~.x$fit$coefficients_sparse)
+    coefficients <- purrr::map(path_fits, ~.x$coefficients)
+    
+    names(coefficients) <- lambdagrid
     
     result <- list(
         coefficients = coefficients,
-        coefficients_sparse = coefficients_sparse,
         lambdagrid = lambdagrid,
+        models_info = path_fits,
+        cb_data = cb_data,
         call = match.call()
     )
     
-    class(result) <- "cb.path"
+    class(result) <- "cbSCRIP"
     cli::cli_alert_success("Path fitting complete.")
     return(result)
-}
-
-
-
-#' Plot Coefficient Paths from a cb.path Object
-#'
-#' S3 method to plot the regularization path of coefficients.
-#'
-#' @param x An object of class `cb.path`.
-#' @param plot_intercept Logical. Whether to include the intercept in the plot.
-#' @param ... Not used.
-#'
-#' @return A ggplot object.
-#' @export
-plot.cb.path <- function(x, plot_intercept = FALSE, ...) {
-    
-    # Wrangle the list of coefficient matrices into a long-format tibble
-    plot_data <- imap_dfr(x$coefficients, ~{
-        .x %>%
-            as.data.frame() %>%
-            tibble::rownames_to_column("variable") %>%
-            mutate(lambda = x$lambdagrid[.y])
-    }) %>%
-        pivot_longer(
-            cols = -c(variable, lambda),
-            names_to = "event_type",
-            values_to = "coefficient"
-        )
-    
-    if (!plot_intercept) {
-        plot_data <- filter(plot_data, variable != "(Intercept)")
-    }
-    
-    ggplot(plot_data, aes(x = log(lambda), y = coefficient, group = variable, color = variable)) +
-        geom_line(alpha = 0.8) +
-        facet_wrap(~event_type, scales = "free_y") +
-        theme_minimal() +
-        guides(color = "none") + # Hide legend for clarity if many variables
-        labs(
-            x = "log(Lambda)",
-            y = "Coefficient Value",
-            title = "Coefficient Regularization Paths",
-            subtitle = "Each line represents a variable's coefficient as penalty increases"
-        )
 }

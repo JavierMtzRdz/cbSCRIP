@@ -11,8 +11,10 @@ fit_cb_model(
   alpha = NULL,
   fit_fun = mtool::mtool.MNlogistic,
   param_start = NULL,
+  n_unpenalized = 2,
   standardize = TRUE,
-  all_event_levels = NULL
+  all_event_levels = NULL,
+  ...
 )
 }
 \arguments{
