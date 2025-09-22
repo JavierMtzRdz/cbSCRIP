@@ -113,7 +113,7 @@ MNlogistic <- function(X, Y, offset, N_covariates,
 
 
 #' @export
-MNlogisticAcc <- function(X, Y, offset, N_covariates,
+MNlogisticAccH <- function(X, Y, offset, N_covariates,
                                 regularization = 'l1', transpose = FALSE,
                                 lambda1, lambda2 = 0, lambda3 = 0,
                                 # learning_rate = 1e-4,
