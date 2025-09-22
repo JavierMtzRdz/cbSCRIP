@@ -71,11 +71,12 @@ plot.cbSCRIP.cv <- function(x, ...) {
 plot.cbSCRIP <- function(x, plot_intercept = FALSE, ...) {
     
     # Wrangle the list of coefficient matrices into a long-format tibble
+    x$lambdagrid
     plot_data <- imap_dfr(x$coefficients, ~{
         .x %>%
             as.data.frame() %>%
             tibble::rownames_to_column("variable") %>%
-            mutate(lambda = as.numeric(.y))
+            mutate(lambda = as.numeric(x$lambdagrid[.y]))
     }) %>%
         pivot_longer(
             cols = -c(variable, lambda),

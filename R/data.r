@@ -1,3 +1,4 @@
+
 weibull_hazard <- Vectorize(function(gamma, lambda, t) {
     return(gamma * lambda * t^(gamma - 1))
 })
@@ -35,11 +36,11 @@ cause_hazards_sim <- function(p, n, beta1, beta2,
                               gamma1 = 1.5, gamma2 = 1.5, max_time = 1.5, noise_cor = 0.1,
                               rate_cens = 0.05, min_time = 1/365, exchangeable = FALSE) {
     
-    # --- Input Validation ---
+    
     if(length(beta1) != p || length(beta2) != p) stop("Length of beta1 and beta2 must match p.")
     if(!exchangeable && nblocks != length(cor_vals)) stop("Length of cor_vals must match nblocks.")
     
-    # --- 1. Covariate Generation ---
+    # Covariate Generation
     if(isTRUE(exchangeable)) {
         # Exchangeable correlation structure
         mat <- matrix(noise_cor, nrow = p, ncol = p)
@@ -60,17 +61,15 @@ cause_hazards_sim <- function(p, n, beta1, beta2,
         X <- mvtnorm::rmvnorm(n, mean = rep(0, p), sigma = correlation_matrix)
     }
     
-    # --- 2. Event Time Generation (Inverse Transform Sampling) ---
-    # Calculate individual-specific rate parameters based on covariates
+    # vent Time Generation 
+    # Calculate individual-specific rate parameters 
     lambda1_i <- as.vector(lambda01 * exp(X %*% beta1))
     lambda2_i <- as.vector(lambda02 * exp(X %*% beta2))
     
     # Define the root-finding function: F(t) - u = 0
-    # where F(t) is the CDF of the minimum of the two event times.
     cdf_solver <- function(t, g1, l1, g2, l2, u) {
         H1 <- l1 * t^g1 # Cumulative hazard for cause 1
         H2 <- l2 * t^g2 # Cumulative hazard for cause 2
-        # CDF is 1 - S(t), where S(t) = exp(-H1 - H2)
         return((1 - exp(-(H1 + H2))) - u)
     }
     
@@ -81,7 +80,7 @@ cause_hazards_sim <- function(p, n, beta1, beta2,
     times <- sapply(1:n, function(i) {
         stats::uniroot(
             cdf_solver,
-            interval = c(0, max_time * 2), # Generous interval for root finding
+            interval = c(0, max_time * 2),
             extendInt = "upX",
             g1 = gamma1, l1 = lambda1_i[i],
             g2 = gamma2, l2 = lambda2_i[i],
@@ -89,19 +88,17 @@ cause_hazards_sim <- function(p, n, beta1, beta2,
         )$root
     })
     
-    # --- 3. Event Type Generation ---
     # At the generated event time, determine the cause based on relative hazards
     hazard1 <- gamma1 * lambda1_i * times^(gamma1 - 1)
     hazard2 <- gamma2 * lambda2_i * times^(gamma2 - 1)
     prob_cause1 <- hazard1 / (hazard1 + hazard2)
     
-    # Handle cases where total hazard is zero (no event possible)
+    # Handle cases where total hazard is zero
     prob_cause1[is.nan(prob_cause1)] <- 0
     
     event_type <- stats::rbinom(n = n, size = 1, prob = prob_cause1)
     c.ind <- ifelse(event_type == 1, 1, 2)
     
-    # --- 4. Censoring and Finalization ---
     # Generate censoring times from an exponential distribution
     cens_times <- stats::rexp(n = n, rate = rate_cens)
     
@@ -109,12 +106,11 @@ cause_hazards_sim <- function(p, n, beta1, beta2,
     c.ind[cens_times < times] <- 0
     times <- pmin(times, cens_times)
     
-    # Apply administrative censoring (end of study) and winsorize time
+    # Apply administrative censoring and winsorize time
     c.ind[times >= max_time] <- 0
     times <- pmin(times, max_time)
     times[times < min_time] <- min_time
     
-    # --- 5. Format Output ---
     sim.data <- data.frame(fstatus = c.ind, ftime = times)
     X_df <- as.data.frame(X)
     colnames(X_df) <- paste0("X", seq_len(p))
@@ -160,10 +156,8 @@ cause_subdist_sim <- function(n, p, beta1, beta2, num.true = 20, mix_p = 0.5,
                               lambda2 = 0.8, rho2 = 10, cens_max = 1.5,
                               max_time = 1.5, min_time = 1/365, exchangeable = FALSE) {
     
-    # --- Input Validation ---
     if(length(beta1) != p || length(beta2) != p) stop("Length of beta1 and beta2 must match p.")
     
-    # --- 1. Covariate Generation (Corrected to include both structures) ---
     if(isTRUE(exchangeable)) {
         # Exchangeable correlation structure
         mat <- matrix(noise_cor, nrow = p, ncol = p)
@@ -184,17 +178,15 @@ cause_subdist_sim <- function(n, p, beta1, beta2, num.true = 20, mix_p = 0.5,
         X <- mvtnorm::rmvnorm(n, mean = rep(0, p), sigma = correlation_matrix)
     }
     
-    # --- 2. Cause of Failure Generation (Mixture Model) ---
     eta1_prob <- X %*% beta1
     prob_not_cause1 <- (1 - mix_p)^exp(eta1_prob)
     prob_cause1 <- 1 - prob_not_cause1
     c.ind <- 1 + rbinom(n, 1, prob = prob_cause1) # 1 = cause 2, 2 = cause 1
     
     # To match description: beta1 affects event 1, beta2 affects event 2
-    # Let's align c.ind so that 1=cause 1, 2=cause 2 for clarity
     c.ind <- ifelse(c.ind == 1, 2, 1)
     
-    # --- 3. Event Time Generation (Conditional on Cause) ---
+    
     ftime <- numeric(n)
     
     # Subjects assigned to cause 1
@@ -217,7 +209,6 @@ cause_subdist_sim <- function(n, p, beta1, beta2, num.true = 20, mix_p = 0.5,
         ftime[is_cause2] <- t2
     }
     
-    # --- 4. Censoring and Finalization (Consolidated and Corrected) ---
     cens_times <- stats::runif(n, min = 0, max = cens_max)
     
     # Apply censoring
@@ -230,7 +221,6 @@ cause_subdist_sim <- function(n, p, beta1, beta2, num.true = 20, mix_p = 0.5,
     ftime <- pmin(ftime, max_time)
     ftime[ftime < min_time] <- min_time
     
-    # --- 5. Format Output ---
     sim.data <- data.frame(fstatus = fstatus, ftime = ftime)
     X_df <- as.data.frame(X)
     colnames(X_df) <- paste0("X", seq_len(p))
@@ -273,11 +263,10 @@ gen_data <- function(n = 400, p = 300,
                      num_true = 20, setting = 1,
                      iter = runif(1, 0, 9e5), sims = NULL) {
     
-    # --- Seed Management ---
     cli::cli_alert_info("Setting: {setting} | Iteration {i}/{sims} | p = {p} | k = {num_true}", i = iter)
     set.seed(iter)
+    # set.seed(sample.int(5))
     
-    # --- 1. Coefficient Vector Setup ---
     beta1 <- rep(0, p)
     beta2 <- rep(0, p)
     nu_ind <- seq_len(num_true)
@@ -311,8 +300,8 @@ gen_data <- function(n = 400, p = 300,
         stop("'setting' must be an integer between 1 and 5.")
     }
     
-    # --- 2. Data Simulation ---
-    # Correctly choose simulation function and correlation structure based on setting
+    # Data Simulation 
+    # Correctly choose simulation function and correlation structure based on 
     if (setting %in% c(1, 2, 3, 4)) {
         # CSH framework for settings 1-4
         sim.data <- cause_hazards_sim(
@@ -320,7 +309,6 @@ gen_data <- function(n = 400, p = 300,
             beta1 = beta1, beta2 = beta2,
             num.true = k,
             exchangeable = (setting == 1), # Exchangeable for setting 1
-            # Using corrected helper function with clear parameter names
             lambda01 = 0.55, lambda02 = 0.35,
             gamma1 = 1.5, gamma2 = 1.5
         )
@@ -331,19 +319,15 @@ gen_data <- function(n = 400, p = 300,
             beta1 = beta1, beta2 = beta2,
             num.true = k,
             exchangeable = TRUE, # Exchangeable for setting 5
-            # Using corrected helper function with reasonable defaults
             cens_max = 1.5
         )
     }
     
-    # Note: Winsorizing is now handled internally by the corrected helper functions.
-    
-    # --- 3. Train-Test Split ---
+    # Train-Test Split 
     train.index <- caret::createDataPartition(sim.data$fstatus, p = 0.75, list = FALSE)
     train <- sim.data[train.index, ]
     test <- sim.data[-train.index, ]
     
-    # --- 4. Return Results ---
     return(list(
         train = train,
         test = test,

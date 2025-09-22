@@ -243,16 +243,31 @@ void proximalSCAD(
 }
 
 void apply_proximal_step(
-        arma::mat& param, const arma::mat& param_unprox, double learning_rate,
-        int reg_p, int K, int p, bool transpose, int penalty, const std::string& regul,
-        Rcpp::IntegerVector& grp_id, int ncores, double lam1, double lam2, double lam3, bool pos,
-        const arma::mat& grp, const arma::mat& grpV, const Rcpp::NumericVector& etaG,
+        arma::mat& param,
+        const arma::mat& param_unprox, 
+        double learning_rate,
+        int reg_p, int K, int p, bool transpose, 
+        int penalty, 
+        const std::string& regul,
+        Rcpp::IntegerVector& grp_id, 
+        int ncores, 
+        double lam1, double lam2, double lam3, 
+        bool pos,
+        const arma::mat& grp, 
+        const arma::mat& grpV,
+        const Rcpp::NumericVector& etaG,
         Rcpp::IntegerVector& own_var, Rcpp::IntegerVector& N_own_var
 ) {
-    // Create a view of the penalized rows from the un-proximalized matrix
+    
+    const double epsilon = 1e-7;
+    
+    if (std::abs(lam1) < epsilon && std::abs(lam2) < epsilon) {
+        param = param_unprox;
+        return;
+    }
+    
     auto param_unprox_reg_view = param_unprox.head_rows(reg_p);
     
-    // Scale lambda penalties by the learning rate
     double scaled_lam1 = lam1 * learning_rate;
     double scaled_lam2 = lam2 * learning_rate;
     double scaled_lam3 = lam3 * learning_rate;
@@ -273,7 +288,6 @@ void apply_proximal_step(
         param.head_rows(reg_p) = param_unprox_reg_copy;
     }
     
-    // handle unpenalized variables 
     if (reg_p < p) {
         param.tail_rows(p - reg_p) = param_unprox.tail_rows(p - reg_p);
     }
@@ -448,8 +462,8 @@ Rcpp::List MultinomLogisticAcc(
         double lam1,
         double lam2,
         double lam3,
-        double c_factor,  // <-- New parameter
-        double v_factor,  // <-- New parameter
+        double c_factor,  
+        double v_factor, 
         double tolerance,
         int niter_inner,
         int maxit,

@@ -13,10 +13,10 @@ cbSCRIP(
   lambda = NULL,
   nlambda = 100,
   n_unpenalized = 2,
-  ratio = 50,
+  ratio = 25,
   ratio_event = 1,
   lambda_max = NULL,
-  lambda.min.ratio = ifelse(nobs < nvars, 0.01, 0.001),
+  lambda.min.ratio = NULL,
   warm_start = T,
   ...
 )
