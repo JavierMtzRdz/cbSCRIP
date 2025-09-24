@@ -17,6 +17,6 @@ prepare_penalty_params(regularization, lambda, alpha)
 A list containing the calculated lambda1 and lambda2 values.
 }
 \description{
-A helper function to calculate the lambda parameters required by the mtool
+A helper function to calculate the lambda parameters required by the cbSCRIP
 fitting function based on the chosen regularization method.
 }

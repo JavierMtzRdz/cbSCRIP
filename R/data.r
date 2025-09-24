@@ -181,7 +181,7 @@ cause_subdist_sim <- function(n, p, beta1, beta2, num.true = 20, mix_p = 0.5,
     eta1_prob <- X %*% beta1
     prob_not_cause1 <- (1 - mix_p)^exp(eta1_prob)
     prob_cause1 <- 1 - prob_not_cause1
-    c.ind <- 1 + rbinom(n, 1, prob = prob_cause1) # 1 = cause 2, 2 = cause 1
+    c.ind <- 1 + stats::rbinom(n, 1, prob = prob_cause1) # 1 = cause 2, 2 = cause 1
     
     # To match description: beta1 affects event 1, beta2 affects event 2
     c.ind <- ifelse(c.ind == 1, 2, 1)
@@ -194,7 +194,7 @@ cause_subdist_sim <- function(n, p, beta1, beta2, num.true = 20, mix_p = 0.5,
     n1 <- length(is_cause1)
     if (n1 > 0) {
         eta1_time <- X[is_cause1, ] %*% beta1
-        u1 <- runif(n1)
+        u1 <- stats::runif(n1)
         t1 <- (-log(u1) / (lambda1 * exp(eta1_time)))^(1 / rho1)
         ftime[is_cause1] <- t1
     }
