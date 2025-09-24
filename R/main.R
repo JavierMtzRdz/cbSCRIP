@@ -1,4 +1,8 @@
+#' @importFrom Rcpp evalCpp
 
+
+
+#' @export
 MNlogistic <- function(X, Y, offset, N_covariates,
                        regularization = 'l1', transpose = F,
                        lambda1, lambda2 = 0, lambda3 = 0,
@@ -113,22 +117,23 @@ MNlogistic <- function(X, Y, offset, N_covariates,
 
 
 #' @export
-MNlogisticAccH <- function(X, Y, offset, N_covariates,
-                                regularization = 'l1', transpose = FALSE,
-                                lambda1, lambda2 = 0, lambda3 = 0,
-                                # learning_rate = 1e-4,
-                                # momentum_gamma = 0.9, #  momentum
-                                c_factor = 100,
-                                v_factor = 0,
-                                pos = FALSE,          #  Positivity constraint
-                                tolerance = 1e-4,
-                                niter_inner_mtplyr = 2,
-                                maxit = 100, ncores = -1,
-                                group_id = NULL, group_weights = NULL, # etaG
-                                groups = NULL, groups_var = NULL,     # grp, grpV
-                                own_variables = NULL, N_own_variables = NULL,
-                                param_start = NULL, verbose = TRUE,
-                                save_history = FALSE) {
+MNlogisticAcc <- function(X, Y, offset, N_covariates,
+                          regularization = 'l1', transpose = FALSE,
+                          lambda1, lambda2 = 0, lambda3 = 0,
+                          # learning_rate = 1e-4,
+                          # momentum_gamma = 0.9, #  momentum
+                          c_factor = NULL,
+                          v_factor = NULL,
+                          pos = FALSE,          #  Positivity constraint
+                          tolerance = 1e-3,
+                          niter_inner_mtplyr = NULL,
+                          maxit = 300, ncores = -1,
+                          group_id = NULL, group_weights = NULL, # etaG
+                          groups = NULL, groups_var = NULL,     # grp, grpV
+                          own_variables = NULL, N_own_variables = NULL,
+                          param_start = NULL, verbose = FALSE,
+                          save_history = FALSE) {
+    
     
     nx <- nrow(X)
     if (!is.matrix(X)) X <- as.matrix(X) # Ensure X is a matrix
@@ -139,6 +144,12 @@ MNlogisticAccH <- function(X, Y, offset, N_covariates,
     }
     n <- nx
     p <- ncol(X)
+    
+    
+    if (is.null(niter_inner_mtplyr)) niter_inner_mtplyr <- ifelse(p <300, 1.5, 0.5)
+    if (is.null(c_factor)) c_factor <- ifelse(p <300, 500000, 2000)
+    
+    if (is.null(v_factor)) v_factor <- ifelse(p <300, 100000, 1000)
     
     valid_Y_values <- Y[!is.na(Y) & Y > 0]
     if (length(valid_Y_values) == 0) stop("Y does not contain any valid positive class labels.")
@@ -170,7 +181,7 @@ MNlogisticAccH <- function(X, Y, offset, N_covariates,
     }
     if(regularization == "none" && penalty_code == 0) penalty_code <- 1 
     
-
+    
     if (is.null(group_id)) group_id <- rep(0L, p) # Default if missing
     if (is.null(group_weights)) group_weights <- vector(mode = 'double')
     if (is.null(groups)) groups <- matrix(NA_real_, nrow=0, ncol=0) # Empty matrix
@@ -179,7 +190,7 @@ MNlogisticAccH <- function(X, Y, offset, N_covariates,
     if (is.null(N_own_variables)) N_own_variables <- vector(mode = 'integer')
     
     if (penalty_code == 1) {
-    
+        
         if(!is.matrix(groups) || nrow(groups)==0) groups <- matrix(NA_real_, nrow=1, ncol=1) 
         if(!is.matrix(groups_var) || nrow(groups_var)==0) groups_var <- matrix(NA_real_, nrow=1, ncol=1)
     } else if (penalty_code == 2) {
@@ -206,31 +217,31 @@ MNlogisticAccH <- function(X, Y, offset, N_covariates,
     
     
     result <- MultinomLogisticAcc(X = X, Y = Y, offset = offset, K = K_val,
-                                  reg_p = as.integer(p - N_covariates),
-                                  penalty = as.integer(penalty_code),
-                                  regul = regularization,
-                                  transpose = transpose,
-                                  grp_id = group_id,
-                                  etaG = group_weights, 
-                                  grp = groups,
-                                  grpV = groups_var,
-                                  own_var = own_variables,
-                                  N_own_var = N_own_variables,
-                                  lam1 = as.double(lambda1),
-                                  lam2 = as.double(lambda2),
-                                  lam3 = as.double(lambda3),
-                                  c_factor = c_factor,
-                                  v_factor = v_factor,
-                                  # learning_rate = as.double(learning_rate),
-                                  # momentum_gamma = as.double(momentum_gamma), 
-                                  tolerance = as.double(tolerance),
-                                  niter_inner = as.integer(niter_inner_mtplyr * nx),
-                                  maxit = as.integer(maxit),
-                                  ncores = as.integer(ncores),
-                                  pos = as.logical(pos), 
-                                  param_start = param_start,
-                                  verbose = verbose,
-                                  save_history = as.logical(save_history))    
+                                           reg_p = as.integer(p - N_covariates),
+                                           penalty = as.integer(penalty_code),
+                                           regul = regularization,
+                                           transpose = transpose,
+                                           grp_id = group_id,
+                                           etaG = group_weights, 
+                                           grp = groups,
+                                           grpV = groups_var,
+                                           own_var = own_variables,
+                                           N_own_var = N_own_variables,
+                                           lam1 = as.double(lambda1),
+                                           lam2 = as.double(lambda2),
+                                           lam3 = as.double(lambda3),
+                                           c_factor = c_factor,
+                                           v_factor = v_factor,
+                                           # learning_rate = as.double(learning_rate),
+                                           # momentum_gamma = as.double(momentum_gamma), 
+                                           tolerance = as.double(tolerance),
+                                           niter_inner = as.integer(niter_inner_mtplyr * nx),
+                                           maxit = as.integer(maxit),
+                                           ncores = as.integer(ncores),
+                                           pos = as.logical(pos), 
+                                           param_start = param_start,
+                                           verbose = verbose,
+                                           save_history = as.logical(save_history))    
     
     if (inherits(result$`Sparse Estimates`, "sparseMatrix")) {
         nzc <- Matrix::nnzero(result$`Sparse Estimates`)
@@ -248,8 +259,9 @@ MNlogisticAccH <- function(X, Y, offset, N_covariates,
     ))
 }
 
+
 #' @export
-mtool.MNlogisticSAGA <- function(X, Y, offset, N_covariates,
+MNlogisticSAGA <- function(X, Y, offset, N_covariates,
                                 regularization = 'l1', transpose = FALSE,
                                 lambda1, lambda2 = 0, lambda3 = 0,
                                 # learning_rate = 1e-4,

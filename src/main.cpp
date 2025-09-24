@@ -1620,26 +1620,9 @@ double soft_threshold(double z, double gamma) {
     return 0.0;
 }
 
-//' @title Asymmetric Multinomial Logistic Regression (Corrected)
- //' @description Fits a penalized multinomial logistic regression model using a reference-class
- //' parameterization. The optimization follows the core algorithm of glmnet: Iteratively
- //' Reweighted Least Squares (IRLS) combined with Cyclical Coordinate Descent (CCD).
- //'
- //' @param X Predictor matrix.
- //' @param Y Response vector of class labels (integers from 0 to K-1, where 0 is the reference class).
- //' @param offset_vec A vector of offsets to be included in the linear predictor.
- //' @param K_classes The total number of classes (including the reference class).
- //' @param reg_p The number of predictors to be regularized.
- //' @param lam1 The L1 regularization parameter (lambda).
- //' @param lam2 The L2 regularization parameter (alpha).
- //' @param tolerance Convergence tolerance for the outer loop.
- //' @param kkt_abs_check_tol Absolute tolerance for the KKT check.
- //' @param maxit Maximum number of outer IRLS iterations.
- //' @param max_ccd_passes_active_set Maximum number of CCD passes over the active set per IRLS iteration.
- //' @param pos Logical flag for positivity constraints on coefficients.
- //' @return A list containing the estimated coefficients.
- // [[Rcpp::export]]
- Rcpp::List MultinomLogisticCCD(
+
+// [[Rcpp::export]]
+Rcpp::List MultinomLogisticCCD(
          const arma::mat& X,
          const arma::vec& Y,
          const arma::vec& offset_vec,

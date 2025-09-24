@@ -40,13 +40,14 @@ find_lambda_max <- function(cb_data,
     
     progressr::handlers("cli")
     
-    with_progress({
+    progressr::with_progress({
         fine_grid_size <- 5
         
         p <- progressr::progressor(steps = length(search_grid) + fine_grid_size)
         
         # Helper function to fit the model and advance the progress bar
         fit_and_get_count <- function(lambda_val) {
+            
             fit_model <- fit_cb_model(
                 cb_data,
                 lambda = lambda_val,
@@ -67,7 +68,10 @@ find_lambda_max <- function(cb_data,
         coarse_results <- furrr::future_map_dbl(
             .x = search_grid,
             .f = fit_and_get_count,
-            .options = furrr::furrr_options(seed = TRUE)
+            .options = furrr::furrr_options(
+                globals = TRUE,
+                seed = TRUE
+            )
         )
         
         upper_idx <- which(coarse_results <= null_model_coefs)
@@ -91,8 +95,11 @@ find_lambda_max <- function(cb_data,
         cli::cli_alert_info("Searching for lambda_max (fine grid)...")
         fine_results <- furrr::future_map_dbl(
             .x = fine_grid,
-            .f = fit_and_get_count, 
-            .options = furrr::furrr_options(seed = TRUE)
+            .f = fit_and_get_count,
+            .options = furrr::furrr_options(
+                globals = TRUE,
+                seed = TRUE
+            )
         )
         
         
@@ -144,11 +151,12 @@ create_lambda_grid <- function(cb_data,
                 alpha = alpha,
                 n_unpenalized = n_unpenalized,
                 ...)
+            }
             
             grid <- rev(exp(seq(log(lambda_max * lambda.min.ratio), 
                                 log(lambda_max), length.out = nlambda)))
             
-        }} else {
+        } else {
             
             grid <- sort(unique(lambda[lambda >= 0]), decreasing = TRUE) 
             
@@ -164,6 +172,7 @@ create_lambda_grid <- function(cb_data,
 
 #' Run a Single Fold of Cross-Validation
 #' @return A vector of multinomial deviances for the fold.
+#' @export
 run_cv_fold <- function(fold_indices, cb_data, 
                         lambdagrid, 
                         all_event_levels,
@@ -264,7 +273,7 @@ cv_cbSCRIP <- function(formula, data, regularization = 'elastic-net',
     
     progressr::handlers("cli")
     
-    with_progress({
+    progressr::with_progress({
         p <- progressr::progressor(steps = nfold * nlambda)
         
         fold_list <- furrr::future_map(
@@ -283,7 +292,10 @@ cv_cbSCRIP <- function(formula, data, regularization = 'elastic-net',
                 )
                 return(res)
             },
-            .options = furrr::furrr_options(seed = TRUE)
+            .options = furrr::furrr_options(
+                globals = TRUE,
+                seed = TRUE
+            )
         )
     })
     
@@ -301,7 +313,7 @@ cv_cbSCRIP <- function(formula, data, regularization = 'elastic-net',
     
     mean_dev <- rowMeans(deviance_matrix)
     
-    se_dev <- apply(deviance_matrix, 1, sd) / sqrt(nfold)
+    se_dev <- apply(deviance_matrix, 1, stats::sd) / sqrt(nfold)
     
     lambda.min <- lambdagrid[which.min(mean_dev)]
     
@@ -342,7 +354,7 @@ cv_cbSCRIP <- function(formula, data, regularization = 'elastic-net',
 #' Fits the case-base model for a sequence of lambda values using warm starts,
 #' returning the path of coefficients. Includes a progress bar.
 #'
-#' @inheritParams cv_cb_model
+#' @inheritParams cv_cbSCRIP
 #' @return An object of class `cb.path` containing coefficient paths.
 #' @export
 cbSCRIP <- function(formula, data, regularization = 'elastic-net', 

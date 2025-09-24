@@ -1,6 +1,6 @@
 Package: cbSCRIP
 Title: What the Package Does (One Line, Title Case)
-Version: 0.1.0
+Version: 0.1.1
 Authors@R: 
     person("First", "Last", , "first.last@example.com", role = c("aut", "cre"))
 Description: What the package does (one paragraph).
@@ -8,5 +8,23 @@ License: MIT + file LICENSE
 Encoding: UTF-8
 Roxygen: list(markdown = TRUE)
 RoxygenNote: 7.3.3
-Imports: Rcpp (>= 1.0.5)
+Imports: Rcpp (>= 1.0.5),
+         parallel (>= 4.5.0),
+         furrr (>= 0.3.1),
+         future (>= 1.67.0),
+         caret,
+         progressr,
+         purrr,
+         cli,
+         VGAM,
+         mvtnorm,
+         stats,
+         rlang (>= 1.1.6),
+         ggplot2,
+         tibble, 
+         dplyr,
+         Matrix
+Depends: R (>= 4.1.0)
 LinkingTo: Rcpp, RcppArmadillo
+SystemRequirements: C++11
+

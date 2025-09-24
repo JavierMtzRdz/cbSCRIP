@@ -1,6 +1,6 @@
 #' Prepare Penalty Parameters for the Fitting Function
 #'
-#' A helper function to calculate the lambda parameters required by the mtool
+#' A helper function to calculate the lambda parameters required by the cbSCRIP
 #' fitting function based on the chosen regularization method.
 #'
 #' @param regularization A string, either 'elastic-net' or 'SCAD'.
@@ -41,6 +41,8 @@ prepare_penalty_params <- function(regularization, lambda, alpha) {
     )
 }
 
+#' Notifying lambda path
+#' @return Notification
 penalty_params_notif <- function(regularization, alpha) {
     # Ensure regularization is a character string
     if (!is.character(regularization) || length(regularization) != 1) {
@@ -89,7 +91,7 @@ penalty_params_notif <- function(regularization, alpha) {
 #' @return A list containing the components of the case-base dataset: `time`,
 #'   `event`, `covariates`, and `offset`.
 #' @export
-create_cb_data <- function(formula, data, ratio = 20, ratio_event = 1) {
+create_cb_data <- function(formula, data, ratio = 20, ratio_event = "all") {
     
     data <- data.frame(data)
     
@@ -111,21 +113,26 @@ create_cb_data <- function(formula, data, ratio = 20, ratio_event = 1) {
     
     status <- data[,status_var]
     
-    cov_matrix <- stats::model.matrix(as.formula(formula[-2]),
+    cov_matrix <- stats::model.matrix(stats::as.formula(formula[-2]),
                                       data[!(names(data) %in% 
                                                  c(status_var,
                                                    time_var))])[, -1, 
                                                                 drop = FALSE]
     
     # Determine which events to use for the base series ratio
+    
     all_event_types <- unique(status[status != 0])
     if (identical(ratio_event, "all")) {
-        case_count <- sum(status != 0)
+        event_types_for_cases <- unique(status[status != 0])
     } else if (is.numeric(ratio_event) && all(ratio_event %in% all_event_types)) {
-        case_count <- sum(status %in% ratio_event)
+        event_types_for_cases <- ratio_event
+        
     } else {
         cli::cli_abort("'ratio_event' must be 'all' or a numeric vector of valid event types.")
     }
+    
+    case_count <- length(which(status %in% event_types_for_cases))
+    
     if (case_count == 0) cli::cli_abort("No events found for the specified 'ratio_event'.")
     
     # Create Base Series
@@ -140,7 +147,8 @@ create_cb_data <- function(formula, data, ratio = 20, ratio_event = 1) {
     sampled_indices <- sample(n, size = b_size, 
                               replace = TRUE, prob = prob_select)
     
-    case_indices <- which(status != 0)
+    
+    case_indices <- which(status %in% all_event_types)
     
     # Combine and return
     n_b <- length(sampled_indices)
@@ -175,14 +183,14 @@ create_cb_data <- function(formula, data, ratio = 20, ratio_event = 1) {
 #' Fit a Penalized Multinomial Model on Case-Base Data
 #'
 #' A wrapper function to fit a penalized model (Elastic-Net or SCAD) using
-#' an optimizer from the `mtool` package.
+#' an optimizer from the `cbSCRIP` package.
 #'
 #' @param cb_data A case-base dataset from `create_cb_data`.
 #' @param regularization A string, either 'elastic-net' or 'SCAD'.
 #' @param lambda The primary shrinkage parameter.
 #' @param alpha The mixing/shape parameter. See `prepare_penalty_params`.
 #' @param unpen_cov Integer. The number of leading covariates to leave unpenalized.
-#' @param fit_fun The fitting function from `mtool` to use.
+#' @param fit_fun The fitting function from `cbSCRIP` to use.
 #' @param param_start Optional starting values for the coefficients.
 #' @param standardize Logical. If TRUE, covariates are scaled to have mean 0 and SD 1.
 #' @return The fitted model object from the specified `fit_fun`.
@@ -190,12 +198,15 @@ create_cb_data <- function(formula, data, ratio = 20, ratio_event = 1) {
 fit_cb_model <- function(cb_data,
                          regularization = c('elastic-net', 'SCAD'), 
                          lambda, alpha = NULL,
-                         fit_fun = mtool::mtool.MNlogistic,
+                         fit_fun = MNlogisticAcc,
                          param_start = NULL,
                          n_unpenalized = 2,
                          standardize = TRUE, 
                          all_event_levels = NULL,
                          ...) {
+    
+    library(Matrix)
+    library(cbSCRIP)
     
     regularization <- rlang::arg_match(regularization)
     penalty_params <- prepare_penalty_params(regularization, lambda, alpha)
@@ -232,7 +243,7 @@ fit_cb_model <- function(cb_data,
         
     }
     
-    X <- model.matrix(~., 
+    X <- stats::model.matrix(~., 
                       data = data.frame(cbind(penalized_covs, 
                                               time = log(cb_data$time))))
     
@@ -266,7 +277,7 @@ fit_cb_model <- function(cb_data,
                 beta_penalized_orig <- sweep(beta_penalized_scaled, 1, scaler$scale, FUN = "/")
                 
                 # Adjust the intercept
-                intercept_adjustment <- colSums(sweep(beta_penalized_scaled, 1, scaler$center / scaler$scale, FUN = "*"), na.rm = TRUE)
+                intercept_adjustment <- colSums(as.matrix(sweep(beta_penalized_scaled, 1, scaler$center / scaler$scale, FUN = "*")), na.rm = TRUE)
                 intercept_orig <- coefs_scaled[nrow(coefs_scaled), ] - intercept_adjustment
                 
                 # full coefficient matrix on the original scale

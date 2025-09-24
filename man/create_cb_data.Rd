@@ -4,7 +4,7 @@
 \alias{create_cb_data}
 \title{Create a Case-Base Dataset for Competing Risks}
 \usage{
-create_cb_data(formula, data, ratio = 20, ratio_event = 1)
+create_cb_data(formula, data, ratio = 20, ratio_event = "all")
 }
 \arguments{
 \item{formula}{A survival formula, e.g., \code{Surv(time, event) ~ cov1 + cov2}.}

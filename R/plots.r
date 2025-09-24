@@ -19,42 +19,42 @@ plot.cbSCRIP.cv <- function(x, ...) {
     label_indices <- round(seq(1, n_total, length.out = n_labels))
     axis_labels_data <- plot_data[label_indices, ]
     
-    ggplot(plot_data, aes(x = lambda, y = mean_dev)) +
-        geom_errorbar(aes(ymin = lower, ymax = upper), 
-                      width = 0.05, 
-                      color = "grey80") +
-        geom_point(color = "#f94144",
-                   alpha = 1) +
-        geom_vline(aes(xintercept = x$lambda.min,
-                       color = "Lambda.min",
-                       linetype = "Lambda.min")) +
-        geom_vline(aes(xintercept = x$lambda.1se,
-                       color = "Lambda.1se",
-                       linetype = "Lambda.1se")) +
-        scale_color_manual(
+    ggplot2::ggplot(plot_data, ggplot2::aes(x = lambda, y = mean_dev)) +
+        ggplot2::geom_errorbar(ggplot2::aes(ymin = lower, ymax = upper),
+                               width = 0.05,
+                               color = "grey80") +
+        ggplot2::geom_point(color = "#f94144",
+                            alpha = 1) +
+        ggplot2::geom_vline(ggplot2::aes(xintercept = x$lambda.min,
+                                         color = "Lambda.min",
+                                         linetype = "Lambda.min")) +
+        ggplot2::geom_vline(ggplot2::aes(xintercept = x$lambda.1se,
+                                         color = "Lambda.1se",
+                                         linetype = "Lambda.1se")) +
+        ggplot2::scale_color_manual(
             name = NULL,
             values = c("Lambda.min" = "#277DA1", "Lambda.1se" = "#264653")
         ) +
-        scale_linetype_manual(
+        ggplot2::scale_linetype_manual(
             name = NULL,
             values = c("Lambda.min" = "dashed", "Lambda.1se" = "dotted")
         ) +
-        labs(
+        ggplot2::labs(
             x = "Lambda",
             y = "Multinomial Deviance",
             title = "Cross-Validation Performance",
             color = "",
             linetype = ""
         ) +
-        scale_x_log10(
-            sec.axis = sec_axis(
+        ggplot2::scale_x_log10(
+            sec.axis = ggplot2::sec_axis(
                 trans = ~.,
                 name = "Mean Number of Selected Variables",
-                breaks = axis_labels_data$lambda,  # Position ticks at these lambda values
-                labels = axis_labels_data$n_vars   # Use n_vars as the label text
+                breaks = axis_labels_data$lambda,  
+                labels = axis_labels_data$n_vars   
             )
         ) +
-        theme_minimal()
+        ggplot2::theme_minimal()
 }
 
 
@@ -72,32 +72,32 @@ plot.cbSCRIP <- function(x, plot_intercept = FALSE, ...) {
     
     # Wrangle the list of coefficient matrices into a long-format tibble
     x$lambdagrid
-    plot_data <- imap_dfr(x$coefficients, ~{
-        .x %>%
-            as.data.frame() %>%
-            tibble::rownames_to_column("variable") %>%
-            mutate(lambda = as.numeric(x$lambdagrid[.y]))
-    }) %>%
-        pivot_longer(
+    plot_data <- purrr::imap_dfr(x$coefficients, ~{
+        .x |>
+            as.data.frame() |>
+            tibble::rownames_to_column("variable") |> 
+            dplyr::mutate(lambda = as.numeric(x$lambdagrid[.y]))
+    }) |>
+        tidyr::pivot_longer(
             cols = -c(variable, lambda),
             names_to = "event_type",
             values_to = "coefficient"
         )
     
     if (!plot_intercept) {
-        plot_data <- filter(plot_data, variable != "(Intercept)")
+        plot_data <- dplyr::filter(plot_data, variable != "(Intercept)")
     }
     
-    ggplot(plot_data, aes(x = lambda, y = coefficient, group = variable, color = variable)) +
-        geom_line(alpha = 0.8) +
-        facet_wrap(~event_type, scales = "free_y") +
-        theme_minimal() +
-        guides(color = "none") + # Hide legend for clarity if many variables
-        labs(
+    ggplot2::ggplot(plot_data, ggplot2::aes(x = lambda, y = coefficient, group = variable, color = variable)) +
+        ggplot2::geom_line(alpha = 0.8) +
+        ggplot2::facet_wrap(~event_type, scales = "free_y") +
+        ggplot2::theme_minimal() +
+        ggplot2::guides(color = "none") + # Hide legend for clarity if many variables
+        ggplot2::labs(
             x = "Lambda",
             y = "Coefficient Value",
             title = "Coefficient Regularization Paths",
             subtitle = "Each line represents a variable's coefficient as penalty increases"
         ) +
-        scale_x_log10()
+        ggplot2::scale_x_log10()
 }

@@ -9,7 +9,7 @@ fit_cb_model(
   regularization = c("elastic-net", "SCAD"),
   lambda,
   alpha = NULL,
-  fit_fun = mtool::mtool.MNlogistic,
+  fit_fun = MNlogisticAcc,
   param_start = NULL,
   n_unpenalized = 2,
   standardize = TRUE,
@@ -26,7 +26,7 @@ fit_cb_model(
 
 \item{alpha}{The mixing/shape parameter. See \code{prepare_penalty_params}.}
 
-\item{fit_fun}{The fitting function from \code{mtool} to use.}
+\item{fit_fun}{The fitting function from \code{cbSCRIP} to use.}
 
 \item{param_start}{Optional starting values for the coefficients.}
 
@@ -39,5 +39,5 @@ The fitted model object from the specified \code{fit_fun}.
 }
 \description{
 A wrapper function to fit a penalized model (Elastic-Net or SCAD) using
-an optimizer from the \code{mtool} package.
+an optimizer from the \code{cbSCRIP} package.
 }
