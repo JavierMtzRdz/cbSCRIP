@@ -258,14 +258,14 @@ cause_subdist_sim <- function(n, p, beta1, beta2, num.true = 20, mix_p = 0.5,
 #' \item{beta2}{The true coefficient vector for cause 2.}
 #' \item{call}{The function call.}
 #' \item{cen.prop}{The proportion of observations for each status (0=censored).}
-#'
+#' @export
 gen_data <- function(n = 400, p = 300,
                      num_true = 20, setting = 1,
                      iter = runif(1, 0, 9e5), sims = NULL) {
     
-    cli::cli_alert_info("Setting: {setting} | Iteration {i}/{sims} | p = {p} | k = {num_true}", i = iter)
+    cli::cli_alert_info("Setting: {setting} | Iteration {iter}/{sims} | p = {p} | k = {num_true}")
     set.seed(iter)
-    # set.seed(sample.int(5))
+    set.seed(sample.int(5))
     
     beta1 <- rep(0, p)
     beta2 <- rep(0, p)
