@@ -147,9 +147,9 @@ MNlogisticAcc <- function(X, Y, offset, N_covariates,
     
     
     if (is.null(niter_inner_mtplyr)) niter_inner_mtplyr <- ifelse(p <300, 1.5, 0.5)
-    if (is.null(c_factor)) c_factor <- ifelse(p <300, 500000, 2000)
+    if (is.null(c_factor)) c_factor <- ifelse(p <300, 100000, 2000)
     
-    if (is.null(v_factor)) v_factor <- ifelse(p <300, 100000, 1000)
+    if (is.null(v_factor)) v_factor <- ifelse(p <300, 1000, 1000)
     
     valid_Y_values <- Y[!is.na(Y) & Y > 0]
     if (length(valid_Y_values) == 0) stop("Y does not contain any valid positive class labels.")
