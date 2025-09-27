@@ -2,7 +2,7 @@
 
 ### Installation
 
-You can install the development version of presupuestoR from
+You can install the development version of cbSCRIP from
 [GitHub](https://github.com/) with:
 
 ``` r
