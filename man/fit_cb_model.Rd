@@ -9,7 +9,7 @@ fit_cb_model(
   regularization = c("elastic-net", "SCAD"),
   lambda,
   alpha = NULL,
-  fit_fun = MNlogisticAcc,
+  fit_fun = MNlogistic,
   param_start = NULL,
   n_unpenalized = 2,
   standardize = TRUE,
