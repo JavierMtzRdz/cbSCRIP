@@ -6,7 +6,7 @@
 MNlogistic <- function(X, Y, offset, N_covariates,
                        regularization = 'l1', transpose = F,
                        lambda1, lambda2 = 0, lambda3 = 0,
-                       learning_rate = 1e-4, tolerance = 1e-4,
+                       learning_rate = 1e-4, tolerance = 5e-3,
                        niter_inner_mtplyr = 7, maxit = 100, 
                        ncores = -1,
                        group_id = NULL, group_weights = NULL, 
@@ -147,9 +147,9 @@ MNlogisticAcc <- function(X, Y, offset, N_covariates,
     
     
     if (is.null(niter_inner_mtplyr)) niter_inner_mtplyr <- ifelse(p <300, 1.5, 0.5)
-    if (is.null(c_factor)) c_factor <- ifelse(p <300, 500000, 2000)
+    if (is.null(c_factor)) c_factor <- ifelse(p <300, 100000, 2000)
     
-    if (is.null(v_factor)) v_factor <- ifelse(p <300, 100000, 1000)
+    if (is.null(v_factor)) v_factor <- ifelse(p <300, 1000, 1000)
     
     valid_Y_values <- Y[!is.na(Y) & Y > 0]
     if (length(valid_Y_values) == 0) stop("Y does not contain any valid positive class labels.")

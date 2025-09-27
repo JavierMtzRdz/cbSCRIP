@@ -198,7 +198,7 @@ create_cb_data <- function(formula, data, ratio = 20, ratio_event = "all") {
 fit_cb_model <- function(cb_data,
                          regularization = c('elastic-net', 'SCAD'), 
                          lambda, alpha = NULL,
-                         fit_fun = MNlogisticAcc,
+                         fit_fun = MNlogistic,
                          param_start = NULL,
                          n_unpenalized = 2,
                          standardize = TRUE, 
