@@ -56,7 +56,7 @@ find_lambda_max <- function(cb_data,
                 n_unpenalized = n_unpenalized,
                 ...
             )
-            result <- sum(!same(fit_model$coefficients_sparse, 0))
+            result <- sum(!same(fit_model$coefficients, 0))
             
             p()
             
@@ -211,7 +211,7 @@ run_cv_fold <- function(fold_indices, cb_data,
             all_event_levels = all_event_levels
         )
         
-        non_zero[i] <- sum(!same(model_info$coefficients_sparse, 0))
+        non_zero[i] <- sum(!same(model_info$coefficients, 0))
         
         update_f()
         
