@@ -198,7 +198,7 @@ create_cb_data <- function(formula, data, ratio = 20, ratio_event = "all") {
 fit_cb_model <- function(cb_data,
                          regularization = c('elastic-net', 'SCAD'), 
                          lambda, alpha = NULL,
-                         fit_fun = MNlogistic,
+                         fit_fun = MNlogisticSAGA,
                          param_start = NULL,
                          n_unpenalized = 2,
                          standardize = TRUE, 
@@ -255,8 +255,8 @@ fit_cb_model <- function(cb_data,
     opt_args <- list(X = X, Y = Y_factor, offset = cb_data$offset,
                      N_covariates = n_unpenalized, 
                      regularization = regularization,
-                     transpose = FALSE, lambda1 = penalty_params$lambda1,
-                     lambda2 = penalty_params$lambda2, lambda3 = 0,
+                     lambda1 = penalty_params$lambda1,
+                     lambda2 = penalty_params$lambda2,
                      param_start = param_start,
                      ...)
     
@@ -265,7 +265,7 @@ fit_cb_model <- function(cb_data,
     # Re-scaling
     if (standardize) {
         # Re-scale both matrices
-        for (coef_type in c("coefficients", "coefficients_sparse")) {
+        for (coef_type in c("coefficients")) {
             if (!is.null(fit[[coef_type]])) {
                 coefs_scaled <- fit[[coef_type]]
                 p_penalized <- ncol(penalized_covs)

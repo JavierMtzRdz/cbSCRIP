@@ -9,10 +9,6 @@ grad_logistic_loss <- function(x, y, param, p) {
     .Call(`_cbSCRIP_grad_logistic_loss`, x, y, param, p)
 }
 
-grad_multinom_loss <- function(x, y, K, offset, param, p) {
-    .Call(`_cbSCRIP_grad_multinom_loss`, x, y, K, offset, param, p)
-}
-
 scalar_scad_prox <- function(val, lambda, a) {
     .Call(`_cbSCRIP_scalar_scad_prox`, val, lambda, a)
 }
@@ -25,31 +21,15 @@ MultinomLogistic <- function(X, Y, offset, K, reg_p, penalty, regul, transpose, 
     .Call(`_cbSCRIP_MultinomLogistic`, X, Y, offset, K, reg_p, penalty, regul, transpose, grp_id, etaG, grp, grpV, own_var, N_own_var, lam1, lam2, lam3, learning_rate, tolerance, niter_inner, maxit, ncores, save_history, verbose, param_start)
 }
 
-MultinomLogisticAcc <- function(X, Y, offset, K, reg_p, penalty, regul, transpose, grp_id, etaG, grp, grpV, own_var, N_own_var, lam1, lam2, lam3, c_factor, v_factor, tolerance, niter_inner, maxit, ncores, save_history = FALSE, verbose = FALSE, pos = FALSE, param_start = NULL) {
-    .Call(`_cbSCRIP_MultinomLogisticAcc`, X, Y, offset, K, reg_p, penalty, regul, transpose, grp_id, etaG, grp, grpV, own_var, N_own_var, lam1, lam2, lam3, c_factor, v_factor, tolerance, niter_inner, maxit, ncores, save_history, verbose, pos, param_start)
+MultinomLogisticSAGA <- function(X, Y, offset, K, reg_p, penalty, regul, transpose, grp_id, etaG, grp, grpV, own_var, N_own_var, lam1, lam2, lam3, tolerance = 1e-6, maxit = 500L, ncores = 1L, verbose = FALSE, pos = FALSE, param_start = NULL) {
+    .Call(`_cbSCRIP_MultinomLogisticSAGA`, X, Y, offset, K, reg_p, penalty, regul, transpose, grp_id, etaG, grp, grpV, own_var, N_own_var, lam1, lam2, lam3, tolerance, maxit, ncores, verbose, pos, param_start)
 }
 
-grad_multinom_loss2 <- function(x, y, K, offset, param, p, grad_out) {
-    invisible(.Call(`_cbSCRIP_grad_multinom_loss2`, x, y, K, offset, param, p, grad_out))
+accelerated_stochastic_optimizer <- function(X, Y, offset, K, estimator_type, tolerance, maxit, niter_inner, batch_size, param_start, verbose, reg_p, penalty, regul, transpose, grp_id, etaG, grp, grpV, own_var, N_own_var, lam1, lam2, lam3, pos, ncores) {
+    .Call(`_cbSCRIP_accelerated_stochastic_optimizer`, X, Y, offset, K, estimator_type, tolerance, maxit, niter_inner, batch_size, param_start, verbose, reg_p, penalty, regul, transpose, grp_id, etaG, grp, grpV, own_var, N_own_var, lam1, lam2, lam3, pos, ncores)
 }
 
-MultinomLogisticExp <- function(X, Y, offset, K, reg_p, penalty, regul, transpose, grp_id, etaG, grp, grpV, own_var, N_own_var, lam1, lam2, lam3, learning_rate, tolerance, niter_inner, maxit, ncores) {
-    .Call(`_cbSCRIP_MultinomLogisticExp`, X, Y, offset, K, reg_p, penalty, regul, transpose, grp_id, etaG, grp, grpV, own_var, N_own_var, lam1, lam2, lam3, learning_rate, tolerance, niter_inner, maxit, ncores)
-}
-
-MultinomLogisticSAGA <- function(X, Y, offset, K, reg_p, penalty, regul, transpose, grp_id, etaG, grp, grpV, own_var, N_own_var, lam1, lam2, lam3, c_factor, v_factor, tolerance, maxit, ncores = 4L, pos = FALSE, verbose = FALSE, save_history = FALSE, param_start = NULL) {
-    .Call(`_cbSCRIP_MultinomLogisticSAGA`, X, Y, offset, K, reg_p, penalty, regul, transpose, grp_id, etaG, grp, grpV, own_var, N_own_var, lam1, lam2, lam3, c_factor, v_factor, tolerance, maxit, ncores, pos, verbose, save_history, param_start)
-}
-
-MultinomLogisticSARAH <- function(X, Y, offset, K, reg_p, penalty, regul, transpose, grp_id, etaG, grp, grpV, own_var, N_own_var, lam1, lam2, lam3, learning_rate, tolerance, niter_inner, maxit, ncores) {
-    .Call(`_cbSCRIP_MultinomLogisticSARAH`, X, Y, offset, K, reg_p, penalty, regul, transpose, grp_id, etaG, grp, grpV, own_var, N_own_var, lam1, lam2, lam3, learning_rate, tolerance, niter_inner, maxit, ncores)
-}
-
-MultinomLogisticPCD <- function(X, Y, offset_vec, K_classes, reg_p, penalty_code, regul, transpose, grp_id, etaG, grp_mat, grpV_mat, own_var, N_own_var, lam1, lam2, lam3, learning_rate, tolerance, maxit, ncores, pos = FALSE) {
-    .Call(`_cbSCRIP_MultinomLogisticPCD`, X, Y, offset_vec, K_classes, reg_p, penalty_code, regul, transpose, grp_id, etaG, grp_mat, grpV_mat, own_var, N_own_var, lam1, lam2, lam3, learning_rate, tolerance, maxit, ncores, pos)
-}
-
-MultinomLogisticCCD <- function(X, Y, offset_vec, K_classes, reg_p, penalty_code, regul, transpose_prox_input, grp_id, etaG, grp_mat, grpV_mat, own_var, N_own_var, lam1, lam2, lam3, learning_rate_scale, tolerance, kkt_abs_check_tol, maxit, max_ccd_passes_active_set, ncores, pos) {
-    .Call(`_cbSCRIP_MultinomLogisticCCD`, X, Y, offset_vec, K_classes, reg_p, penalty_code, regul, transpose_prox_input, grp_id, etaG, grp_mat, grpV_mat, own_var, N_own_var, lam1, lam2, lam3, learning_rate_scale, tolerance, kkt_abs_check_tol, maxit, max_ccd_passes_active_set, ncores, pos)
+MultinomLogisticAcc <- function(X, Y, offset, K, reg_p, penalty, regul, transpose, grp_id, etaG, grp, grpV, own_var, N_own_var, lam1, lam2, lam3, c_factor, v_factor, tolerance = 1e-3, niter_inner = 100L, maxit = 500L, ncores = 1L, save_history = FALSE, verbose = FALSE, pos = FALSE, batch_size = 64L, param_start = NULL) {
+    .Call(`_cbSCRIP_MultinomLogisticAcc`, X, Y, offset, K, reg_p, penalty, regul, transpose, grp_id, etaG, grp, grpV, own_var, N_own_var, lam1, lam2, lam3, c_factor, v_factor, tolerance, niter_inner, maxit, ncores, save_history, verbose, pos, batch_size, param_start)
 }
 

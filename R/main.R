@@ -120,14 +120,13 @@ MNlogistic <- function(X, Y, offset, N_covariates,
 MNlogisticAcc <- function(X, Y, offset, N_covariates,
                           regularization = 'l1', transpose = FALSE,
                           lambda1, lambda2 = 0, lambda3 = 0,
-                          # learning_rate = 1e-4,
-                          # momentum_gamma = 0.9, #  momentum
                           c_factor = NULL,
                           v_factor = NULL,
                           pos = FALSE,          #  Positivity constraint
                           tolerance = 1e-3,
                           niter_inner_mtplyr = NULL,
                           maxit = 300, ncores = -1,
+                          batch_size = 64,
                           group_id = NULL, group_weights = NULL, # etaG
                           groups = NULL, groups_var = NULL,     # grp, grpV
                           own_variables = NULL, N_own_variables = NULL,
@@ -230,6 +229,7 @@ MNlogisticAcc <- function(X, Y, offset, N_covariates,
                                            lam1 = as.double(lambda1),
                                            lam2 = as.double(lambda2),
                                            lam3 = as.double(lambda3),
+                                  batch_size = batch_size,
                                            c_factor = c_factor,
                                            v_factor = v_factor,
                                            # learning_rate = as.double(learning_rate),
@@ -264,10 +264,6 @@ MNlogisticAcc <- function(X, Y, offset, N_covariates,
 MNlogisticSAGA <- function(X, Y, offset, N_covariates,
                                 regularization = 'l1', transpose = FALSE,
                                 lambda1, lambda2 = 0, lambda3 = 0,
-                                # learning_rate = 1e-4,
-                                # momentum_gamma = 0.9, #  momentum
-                                c_factor = 100,
-                                v_factor = 0,
                                 pos = FALSE,          #  Positivity constraint
                                 tolerance = 1e-4,
                                 # niter_inner_mtplyr = 2,
@@ -275,7 +271,7 @@ MNlogisticSAGA <- function(X, Y, offset, N_covariates,
                                 group_id = NULL, group_weights = NULL, # etaG
                                 groups = NULL, groups_var = NULL,     # grp, grpV
                                 own_variables = NULL, N_own_variables = NULL,
-                                param_start = NULL, verbose = TRUE,
+                                param_start = NULL, verbose = FALSE,
                                 save_history = FALSE) {
     
     nx <- nrow(X)
@@ -367,17 +363,14 @@ MNlogisticSAGA <- function(X, Y, offset, N_covariates,
                                   lam1 = as.double(lambda1),
                                   lam2 = as.double(lambda2),
                                   lam3 = as.double(lambda3),
-                                  c_factor = c_factor,
-                                  v_factor = v_factor,
-                                  # learning_rate = as.double(learning_rate),
-                                  # momentum_gamma = as.double(momentum_gamma), 
                                   tolerance = as.double(tolerance),
                                   maxit = as.integer(maxit),
                                   ncores = as.integer(ncores),
                                   pos = as.logical(pos), 
                                   param_start = param_start,
-                                  verbose = verbose,
-                                  save_history = as.logical(save_history))    
+                                  verbose = verbose
+                                  # save_history = as.logical(save_history)
+                                  )    
     
     if (inherits(result$`Sparse Estimates`, "sparseMatrix")) {
         nzc <- Matrix::nnzero(result$`Sparse Estimates`)
@@ -393,4 +386,127 @@ MNlogisticSAGA <- function(X, Y, offset, N_covariates,
         convergence_pass = result$`Convergence Iteration`,
         no_non_zero = nzc
     ))
+}
+
+#' @export
+MNlogistic_accel <- function(X, Y, offset,
+                             N_covariates = 0,
+                             regularization = 'l1',
+                             estimator_type = 'SVRG',
+                             transpose = FALSE,
+                             lambda1 = 0, lambda2 = 0, lambda3 = 0,
+                             pos = FALSE,
+                             tolerance = 1e-4,
+                             maxit = 100,
+                             niter_inner = NULL,
+                             batch_size = 1,
+                             ncores = -1,
+                             group_id = NULL, group_weights = NULL,
+                             groups = NULL, groups_var = NULL,
+                             own_variables = NULL, N_own_variables = NULL,
+                             param_start = NULL, verbose = FALSE) {
+    
+    # --- 1. Input Validation and Preparation ---
+    if (!is.matrix(X)) X <- as.matrix(X)
+    n <- nrow(X)
+    p <- ncol(X)
+    
+    if (n != length(Y) || n != length(offset)) {
+        stop('X, Y, and offset must have the same number of observations.')
+    }
+    
+    # Determine K (number of classes)
+    valid_Y <- Y[!is.na(Y) & Y > 0]
+    if (length(valid_Y) == 0) stop("Y has no valid positive class labels.")
+    K <- length(unique(valid_Y))
+    
+    # --- 2. Process `regularization` and `N_covariates` ---
+    # Translate the regularization string into an integer penalty code for C++
+    pen1 <- c("l0", "l1", "l2", "linf", "elastic-net", "group-lasso-l2", "sparse-group-lasso-l2", "none")
+    pen2 <- c("graph", "graph-ridge")
+    pen3 <- c("tree-l2", "multi-task-tree")
+    pen4 <- c("SCAD")
+    
+    penalty_code <- 0
+    if (regularization %in% pen1) penalty_code <- 1
+    if (regularization %in% pen2) penalty_code <- 2
+    if (regularization %in% pen3) penalty_code <- 3
+    if (regularization %in% pen4) penalty_code <- 4
+    if (penalty_code == 0) stop(paste("Regularization type '", regularization, "' is not supported.", sep=""))
+    
+    # Calculate reg_p: the number of variables to be regularized
+    reg_p <- p - N_covariates
+    if (reg_p < 0 || reg_p > p) {
+        stop("`N_covariates` must be an integer between 0 and p.")
+    }
+    
+    # --- 3. Prepare Penalty-Specific Arguments ---
+    # Set defaults for optional penalty arguments
+    if (is.null(group_id)) group_id <- rep(0L, p) # Default if missing
+    if (is.null(group_weights)) group_weights <- vector(mode = 'double')
+    if (is.null(groups)) groups <- matrix(NA_real_, nrow=0, ncol=0) # Empty matrix
+    if (is.null(groups_var)) groups_var <- matrix(NA_real_, nrow=0, ncol=0)
+    if (is.null(own_variables)) own_variables <- vector(mode = 'integer')
+    if (is.null(N_own_variables)) N_own_variables <- vector(mode = 'integer')
+    
+    # Check for required arguments for complex penalties
+    if (penalty_code == 2 && (is.null(groups) || is.null(groups_var))) {
+        stop("`groups` and `groups_var` are required for graph penalties.")
+    }
+    if (penalty_code == 3 && (is.null(groups) || is.null(own_variables))) {
+        stop("`groups` and `own_variables` are required for tree penalties.")
+    }
+    
+    if (is.null(niter_inner)) niter_inner <- n
+    
+    # --- 4. Call C++ Backend with Full Set of Arguments ---
+    result <- accelerated_stochastic_optimizer(
+        X = X, Y = as.integer(Y), offset = as.double(offset), K = as.integer(K),
+        
+        estimator_type = as.character(estimator_type),
+        tolerance = as.double(tolerance), maxit = as.integer(maxit),
+        niter_inner = as.integer(niter_inner), batch_size = as.integer(batch_size),
+        param_start = param_start, verbose = as.logical(verbose),
+        
+        # Full penalty parameters
+        reg_p = as.integer(reg_p),
+        penalty = as.integer(penalty_code),
+        regul = as.character(regularization),
+        transpose = as.logical(transpose),
+        grp_id = as.integer(group_id), etaG = as.double(group_weights),
+        grp = as.matrix(groups), grpV = as.matrix(groups_var),
+        own_var = as.integer(own_variables), N_own_var = as.integer(N_own_variables),
+        lam1 = as.double(lambda1), lam2 = as.double(lambda2), lam3 = as.double(lambda3),
+        pos = as.logical(pos), ncores = as.integer(ncores)
+    )
+    
+    # --- 5. Format and Return Output ---
+    estimates <- result$Estimates
+    if (!is.null(colnames(X))) rownames(estimates) <- colnames(X)
+    colnames(estimates) <- paste0("Class_", 1:K)
+    
+    output <- list(
+        coefficients = estimates,
+        converged = result$Converged,
+        iterations = result$`Convergence Iteration`
+    )
+    class(output) <- "MNlogisticFit" # Assign class for custom print method
+    return(output)
+}
+
+#' Print method for MNlogisticFit objects
+#' @param x An object of class 'MNlogisticFit'.
+#' @param ... Additional arguments.
+#' @export
+print.MNlogisticFit <- function(x, ...) {
+    cat("--- Accelerated Multinomial Logistic Regression Fit ---\n")
+    cat("Converged:", x$converged)
+    if (x$converged) {
+        cat(" in", x$iterations, "iterations\n")
+    } else {
+        cat("\n")
+    }
+    cat("\nCoefficients (head):\n")
+    print(head(x$coefficients))
+    invisible(x)
 }

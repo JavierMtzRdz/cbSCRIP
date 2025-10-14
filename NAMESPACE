@@ -2,9 +2,11 @@
 
 S3method(plot,cbSCRIP)
 S3method(plot,cbSCRIP.cv)
+S3method(print,MNlogisticFit)
 export(MNlogistic)
 export(MNlogisticAcc)
 export(MNlogisticSAGA)
+export(MNlogistic_accel)
 export(cbSCRIP)
 export(create_cb_data)
 export(cv_cbSCRIP)
