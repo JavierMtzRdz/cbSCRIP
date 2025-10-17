@@ -5,21 +5,41 @@
 #'   dimensional consistency.
 #' @return The multinomial deviance value.
 calc_multinom_deviance <- function(cb_data, fit_object, all_event_levels) {
-    # Reconstruct the design matrix exactly as in fit_cb_model
+    # 1. Reconstruct the design matrix (ensure this matches the fitting process)
     X <- as.matrix(cbind(cb_data$covariates, time = log(cb_data$time), 1))
     
+    # 2. Get the essential offset term
+    offset <- cb_data$offset
+    if (is.null(offset)) {
+        stop("`offset` not found in cb_data. It is essential for deviance calculation.")
+    }
+    
+    # 3. Calculate scores for event classes using the GLM offset convention
     fitted_vals <- X %*% fit_object$coefficients
-    if (is.vector(fitted_vals)) fitted_vals <- as.matrix(fitted_vals)
+    scores_events <- fitted_vals + offset
     
-    pred_mat <- VGAM::multilogitlink(fitted_vals, inverse = TRUE)
+    # 4. Manually compute the softmax probabilities, including the baseline
+    # The baseline score is 0, so its exponential is exp(0) = 1
+    exp_scores_events <- exp(scores_events)
+    denominator <- 1 + rowSums(exp_scores_events)
     
+    # Probabilities of the event classes
+    prob_events <- exp_scores_events / denominator
+    # Probability of the baseline class (event = 0)
+    prob_baseline <- 1 / denominator
+    
+    # 5. Combine into the final predicted probability matrix `mu`
+    # Ensure the column order matches `all_event_levels`
+    pred_mat <- cbind(prob_baseline, prob_events)
+    # Assuming event levels are 0, 1, 2...
+    colnames(pred_mat) <- c(0, 1:ncol(prob_events))
+    pred_mat <- pred_mat[, as.character(all_event_levels)]
+    
+    # 6. Create the observed outcome matrix (Y_mat)
     Y_fct <- factor(cb_data$event, levels = all_event_levels)
+    Y_mat <- model.matrix(~ Y_fct - 1)
     
-    Y_mat <- matrix(0, ncol = length(all_event_levels), nrow = nrow(X))
-    
-    valid_indices <- !is.na(Y_fct)
-    Y_mat[cbind(which(valid_indices), as.integer(Y_fct)[valid_indices])] <- 1
-    
+    # 7. Calculate deviance with the CORRECT predicted probabilities
     VGAM::multinomial()@deviance(mu = pred_mat, y = Y_mat, w = rep(1, nrow(X)))
 }
 
@@ -36,7 +56,7 @@ find_lambda_max <- function(cb_data,
     
     n_event_types <- length(unique(cb_data$event))
     null_model_coefs <- n_unpenalized * (n_event_types - 1)
-    search_grid <- round(exp(seq(log(7), log(0.005), length.out = 5)), 6)
+    search_grid <- round(exp(seq(log(7), log(0.005), length.out = 5)), 8)
     
     progressr::handlers("cli")
     
@@ -91,7 +111,7 @@ find_lambda_max <- function(cb_data,
         lower_bound <- max(search_grid[lower_idx])
         
         # Finer Search
-        fine_grid <- round(seq(lower_bound, upper_bound, length.out = fine_grid_size), 6)
+        fine_grid <- round(seq(lower_bound, upper_bound, length.out = fine_grid_size), 8)
         cli::cli_alert_info("Searching for lambda_max (fine grid)...")
         fine_results <- furrr::future_map_dbl(
             .x = fine_grid,
@@ -167,7 +187,7 @@ create_lambda_grid <- function(cb_data,
     
     cli::cli_alert_info("Using {length(grid)} lambdas. Range: {signif(min(grid), 3)} to {signif(max(grid), 3)}")
     
-    return(round(grid, 5))
+    return(round(grid, 8))
 }
 
 #' Run a Single Fold of Cross-Validation
@@ -357,7 +377,7 @@ cv_cbSCRIP <- function(formula, data, regularization = 'elastic-net',
 #' @inheritParams cv_cbSCRIP
 #' @return An object of class `cb.path` containing coefficient paths.
 #' @export
-cbSCRIP <- function(formula, data, regularization = 'elastic-net', 
+path_cbSCRIP <- function(formula, data, regularization = 'elastic-net', 
                     cb_data = NULL,
                     alpha = NULL,
                     lambda = NULL,
@@ -432,7 +452,7 @@ cbSCRIP <- function(formula, data, regularization = 'elastic-net',
         call = match.call()
     )
     
-    class(result) <- "cbSCRIP"
+    class(result) <- "cbSCRIP.path"
     cli::cli_alert_success("Path fitting complete.")
     return(result)
 }

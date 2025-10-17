@@ -2,6 +2,7 @@
 % Please edit documentation in R/cbSCRIP-package.R
 \docType{package}
 \name{cbSCRIP-package}
+\alias{cbSCRIP}
 \alias{cbSCRIP-package}
 \title{cbSCRIP: What the Package Does (One Line, Title Case)}
 \description{

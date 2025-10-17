@@ -297,5 +297,24 @@ fit_cb_model <- function(cb_data,
         }
         return(c(fit, scaler = list(scaler)))
     }
+    class(fit) <- "cbSCRIP"
     return(fit)
+}
+
+
+#' Print method for cbSCRIP objects
+#' @param x An object of class 'cbSCRIP'.
+#' @param ... Additional arguments.
+#' @export
+print.cbSCRIP <- function(x, ...) {
+    cat("--- cbSCRIP ---\n")
+    cat("Converged:", x$converged)
+    if (x$converged) {
+        cat(" in", x$iterations, "iterations\n")
+    } else {
+        cat("\n")
+    }
+    cat("\nCoefficients (head):\n")
+    print(head(x$coefficients))
+    invisible(x)
 }
