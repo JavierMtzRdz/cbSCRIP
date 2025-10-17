@@ -25,11 +25,3 @@ MultinomLogisticSAGA <- function(X, Y, offset, K, reg_p, penalty, regul, transpo
     .Call(`_cbSCRIP_MultinomLogisticSAGA`, X, Y, offset, K, reg_p, penalty, regul, transpose, grp_id, etaG, grp, grpV, own_var, N_own_var, lam1, lam2, lam3, tolerance, maxit, ncores, verbose, pos, param_start)
 }
 
-accelerated_stochastic_optimizer <- function(X, Y, offset, K, estimator_type, tolerance, maxit, niter_inner, batch_size, param_start, verbose, reg_p, penalty, regul, transpose, grp_id, etaG, grp, grpV, own_var, N_own_var, lam1, lam2, lam3, pos, ncores) {
-    .Call(`_cbSCRIP_accelerated_stochastic_optimizer`, X, Y, offset, K, estimator_type, tolerance, maxit, niter_inner, batch_size, param_start, verbose, reg_p, penalty, regul, transpose, grp_id, etaG, grp, grpV, own_var, N_own_var, lam1, lam2, lam3, pos, ncores)
-}
-
-MultinomLogisticAcc <- function(X, Y, offset, K, reg_p, penalty, regul, transpose, grp_id, etaG, grp, grpV, own_var, N_own_var, lam1, lam2, lam3, c_factor, v_factor, tolerance = 1e-3, niter_inner = 100L, maxit = 500L, ncores = 1L, save_history = FALSE, verbose = FALSE, pos = FALSE, batch_size = 64L, param_start = NULL) {
-    .Call(`_cbSCRIP_MultinomLogisticAcc`, X, Y, offset, K, reg_p, penalty, regul, transpose, grp_id, etaG, grp, grpV, own_var, N_own_var, lam1, lam2, lam3, c_factor, v_factor, tolerance, niter_inner, maxit, ncores, save_history, verbose, pos, batch_size, param_start)
-}
-

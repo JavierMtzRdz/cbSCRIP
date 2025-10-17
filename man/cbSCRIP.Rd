@@ -18,6 +18,7 @@ cbSCRIP(
   lambda_max = NULL,
   lambda.min.ratio = NULL,
   warm_start = T,
+  coeffs = c("adjusted", "original"),
   ...
 )
 }

@@ -295,7 +295,101 @@ fit_cb_model <- function(cb_data,
                 fit[[coef_type]] <- round(coefs_orig, 8)
             }
         }
-        return(c(fit, scaler = list(scaler)))
+        fit <- c(fit, scaler = list(scaler))
     }
+    fit <- c(fit, 
+             scaler = list(scaler),
+             adjusted = F)
+    class(fit) <- "cbSCRIP"
     return(fit)
+}
+
+#' Print a cbSCRIP object
+#'
+#' Provides a concise and informative summary of a fitted `cbSCRIP` model,
+#' highlighting the regularization parameters, convergence status, and the
+#' specific coefficients selected by the penalty.
+#'
+#' @param x An object of class `cbSCRIP`.
+#' @param ... Additional arguments (currently unused).
+#' @param print_limit The maximum number of non-zero coefficients to display.
+#'   If more are selected, a summary message is shown.
+#'
+#' @return The original object `x`, invisibly.
+#' @importFrom cli cat_rule cat_bullet style_bold style_italic symbol
+#' @importFrom crayon green red
+#' @export
+print.cbSCRIP <- function(x, ..., print_limit = 10) {
+    # --- Header ---
+    cli::cat_rule(cli::style_bold("Case-Base Competing Risks Model (cbSCRIP)"), col = "blue")
+    cat("\n")
+    
+    # --- Model & Penalty Details ---
+    # Use rlang::`%||%` to handle cases where lambda might be named differently
+    lambda_val <- x$call$lambda1 %||% x$call$lambda
+    alpha_val <- x$call$alpha
+    
+    if (!is.null(lambda_expr)) {
+        # Evaluate the expression to get its numeric value
+        lambda_val <- eval(lambda_expr, envir = parent.frame())
+        cli::cat_bullet("Lambda: ", sprintf("%.4f", lambda_val), bullet = "info")
+    }
+    if (!is.null(alpha_expr)) {
+        # Also evaluate alpha for robustness
+        alpha_val <- eval(alpha_expr, envir = parent.frame())
+        cli::cat_bullet("Alpha (for elastic-net): ", alpha_val, bullet = "info")
+    }
+    
+    # --- Convergence Status ---
+    cat("\n")
+    if (isTRUE(x$converged)) {
+        status <- cli::style_bold(crayon::green("Converged"))
+        details <- paste0(" in ", x$convergence_pass, " iterations.")
+        cli::cat_bullet(status, details, bullet = cli::symbol$tick)
+    } else {
+        status <- cli::style_bold(crayon::red("Did not converge"))
+        cli::cat_bullet(status, bullet = cli::symbol$cross)
+    }
+    cat("\n")
+    
+    # --- Selected Coefficients Details ---
+    cli::cat_rule("Selected Coefficients", col = "blue")
+    
+    coefs <- x$coefficients
+    if (is.null(coefs) || !is.matrix(coefs)) {
+        cat("No coefficient matrix found.\n")
+        invisible(x)
+        return()
+    }
+    
+    # Convert the wide coefficient matrix
+    long_coefs <- as.data.frame(as.table(coefs, base = list(NUMBERS)))
+    long_coefs$Var2 <- as.numeric(as.factor(long_coefs$Var2))
+    colnames(long_coefs) <- c("Variable", "Cause", "Coefficient")
+    
+    # Filter for non-zero coefficients
+    selected_coefs <- long_coefs[abs(long_coefs$Coefficient) > 1e-10, ]
+    n_selected <- nrow(selected_coefs)
+    
+    if (n_selected == 0) {
+        cat("No variables selected at this lambda value.\n")
+    } else {
+        cat("Found", cli::style_bold(n_selected), "non-zero coefficients:\n\n")
+        
+        # Format for printing
+        selected_coefs$Variable <- as.character(selected_coefs$Variable)
+        selected_coefs$Cause <- as.character(selected_coefs$Cause)
+        selected_coefs$Coefficient <- sprintf("% .5f", selected_coefs$Coefficient)
+        
+        # Print all if under the limit, otherwise print a summary
+        if (n_selected <= print_limit) {
+            print(as.data.frame(selected_coefs), row.names = FALSE, right = FALSE)
+        } else {
+            print(utils::head(as.data.frame(selected_coefs), n = print_limit), row.names = FALSE, right = FALSE)
+            cat(cli::style_italic(paste0("\n... and ", n_selected - print_limit, " more non-zero coefficients.")))
+        }
+    }
+    
+    # Return object invisibly, as is standard for print methods
+    invisible(x)
 }

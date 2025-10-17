@@ -68,7 +68,7 @@ plot.cbSCRIP.cv <- function(x, ...) {
 #'
 #' @return A ggplot object.
 #' @export
-plot.cbSCRIP <- function(x, plot_intercept = FALSE, ...) {
+plot.cbSCRIP.path <- function(x, plot_intercept = FALSE, ...) {
     
     # Wrangle the list of coefficient matrices into a long-format tibble
     x$lambdagrid
