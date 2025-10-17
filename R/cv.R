@@ -674,6 +674,8 @@ cbSCRIP <- function(formula, data, regularization = 'elastic-net',
         
         result$refitted_models <- result$refitted_models[[1]]
         
+        result <- c(result, call = match.call())
+        
     }
     
     return(result)

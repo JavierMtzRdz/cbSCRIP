@@ -4,16 +4,21 @@
 \alias{print.cbSCRIP}
 \title{Print a cbSCRIP object}
 \usage{
-\method{print}{cbSCRIP}(x, ...)
+\method{print}{cbSCRIP}(x, ..., print_limit = 10)
 }
 \arguments{
-\item{x}{An object of class \code{cbSCRIP}, the result of \code{fit_cb_model}.}
+\item{x}{An object of class \code{cbSCRIP}.}
 
 \item{...}{Additional arguments (currently unused).}
+
+\item{print_limit}{The maximum number of non-zero coefficients to display.
+If more are selected, a summary message is shown.}
 }
 \value{
 The original object \code{x}, invisibly.
 }
 \description{
-Print a cbSCRIP object
+Provides a concise and informative summary of a fitted \code{cbSCRIP} model,
+highlighting the regularization parameters, convergence status, and the
+specific coefficients selected by the penalty.
 }
