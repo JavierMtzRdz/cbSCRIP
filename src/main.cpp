@@ -39,33 +39,34 @@ arma::vec grad_logistic_loss(
 }
 
 arma::mat grad_multinom_loss(
-        const arma::rowvec& x,
-        int y,
-        int K,
-        double offset,
-        const arma::mat& param,
-        int p
-) {
-    arma::mat grad_out(p, K, arma::fill::zeros);
+        arma::rowvec& x,
+        int& y,
+        int& K,
+        double& offset,
+        arma::mat& param,
+        int& p) {
+    arma::mat grad(p, K);
+    arma::vec pi(K);
     
-    // Linear scores
-    arma::vec linear_scores = param.t() * x.t(); // K x 1
-    double baseline_score = offset;
+    for (int i = 0; i < K; i++) {
+        pi(i) = exp(arma::dot(x, param.col(i)) + offset);
+    }
+    pi = pi/(arma::sum(pi) + 1.0);
     
-    double max_score = std::max(linear_scores.max(), baseline_score);
-    arma::vec exp_scores = arma::exp(linear_scores - max_score);
-    double exp_baseline = std::exp(baseline_score - max_score);
-    
-    double denom = arma::accu(exp_scores) + exp_baseline;
-    if (denom < 1e-12 || !std::isfinite(denom)) return grad_out;
-    
-    arma::vec probs = exp_scores / denom;
-    grad_out = x.t() * probs.t(); 
-    
-    if (y > 0 && y <= K)
-        grad_out.col(y - 1) -= x.t();
-    
-    return grad_out;
+    if (y == 0) {
+        for (int k = 0; k < K; k++) {
+            grad.col(k) = pi(k) * arma::vectorise(x);
+        }
+    } else {
+        for (int k = 0; k < K; k++) {
+            if (k == y - 1) {
+                grad.col(k) = (pi(k) - 1) * arma::vectorise(x);
+            } else {
+                grad.col(k) = pi(k) * arma::vectorise(x);
+            }
+        }
+    }
+    return grad;
 }
 
 
@@ -76,27 +77,33 @@ arma::mat grad_multinom_single(
         const arma::mat& param,
         int K) {
     
-    arma::vec linear_scores = param.t() * x.t(); 
+    // 1. The incoming offset_val represents log(1/p(t)).
+    double offset = offset_val(0);
     
-    // Soft-clip offset
-    double baseline_score = offset_val(0);
-    if (std::abs(baseline_score) > 20.0) {
-        baseline_score = 20.0 * std::tanh(baseline_score / 20.0);
-    }
+    // Soft-clip the offset for numerical stability.
+    // if (std::abs(offset) > 20.0) {
+    //     offset = 20.0 * std::tanh(offset / 20.0);
+    // }
     
-    // softmax computation
+    // 2. Add the offset to the scores of the K explicit classes.
+    arma::vec linear_scores = param.t() * x.t() + offset; 
+    
+    // 3. The baseline class is the reference, with a score of 0.
+    double baseline_score = 0.0;
+    
+    // 4. Stabilized softmax computation
     double max_score = std::max(linear_scores.max(), baseline_score);
     arma::vec exp_scores = arma::exp(linear_scores - max_score);
-    double denom = arma::accu(exp_scores) + std::exp(baseline_score - max_score)+ 1e-12;
+    double denom = arma::accu(exp_scores) + std::exp(baseline_score - max_score) + 1e-12;
     
     arma::mat grad_out(param.n_rows, K, arma::fill::zeros);
     if (denom < 1e-10 || !std::isfinite(denom)) {
-        return grad_out; // Return zero gradient on numerical error
+        return grad_out;
     }
     
     arma::vec pi = exp_scores / denom; 
     
-    // Gradient 
+    // 5. Gradient Calculation
     grad_out = x.t() * pi.t(); 
     
     if (y > 0 && y <= K) {
@@ -114,23 +121,37 @@ arma::mat compute_full_grad_vectorized(
     const int n = X.n_rows;
     const int K = param.n_cols;
     
-    arma::mat S = X * param; 
-    arma::vec max_scores = arma::max(S, 1);
-    max_scores = arma::max(max_scores, offsets); 
+    // 1. Calculate scores for explicit classes, adding the offset to each.
+    arma::mat scores = X * param;
+    scores.each_col() += offsets;
     
-    S.each_col() -= max_scores;
-    arma::mat expS = arma::exp(S);
-    arma::vec exp_base = arma::exp(offsets - max_scores);
-    arma::vec denom = arma::sum(expS, 1) + exp_base;
+    // 2. Stabilize using log-sum-exp trick.
+    double baseline_score = 0.0;
+    arma::vec max_scores = arma::max(scores, 1);
+    
+    // --- CORRECTED LINE ---
+    // This finds all elements in max_scores that are less than baseline_score (0.0)
+    // and sets them to baseline_score. This is the correct way to perform a clamp.
+    max_scores.elem( arma::find(max_scores < baseline_score) ).fill(baseline_score);
+    
+    // 3. Compute probabilities.
+    scores.each_col() -= max_scores;
+    arma::mat expS = arma::exp(scores);
+    
+    arma::vec exp_base = arma::exp(arma::zeros<arma::vec>(n) - max_scores);
+    
+    arma::vec denom = arma::sum(expS, 1) + exp_base + 1e-12;
     
     expS.each_col() /= denom;
     
+    // 4. One-hot encoding for true labels.
     arma::mat Yone(n, K, arma::fill::zeros);
     for (int i = 0; i < n; ++i) {
         if (Y(i) > 0 && Y(i) <= K)
             Yone(i, Y(i) - 1) = 1.0;
     }
     
+    // 5. Final vectorized gradient calculation.
     arma::mat grad = X.t() * (expS - Yone);
     grad /= static_cast<double>(n);
     grad.replace(arma::datum::nan, 0.0);
@@ -662,12 +683,12 @@ Rcpp::List MultinomLogisticSAGA(
 
     // learning rate based on Lipschitz constant
     if (verbose) Rcpp::Rcout << "Estimating Lipschitz constant..." << std::endl;
-    double L = get_lambda_max(X) / 4.0; 
-    L = std::max(L, 1e-4); 
+    double L = get_lambda_max(X) / 1000.0;
+
     double learning_rate = 1.0 / L;
     if (verbose) Rcpp::Rcout << "  Lipschitz constant L = " << L << ", Learning Rate = " << learning_rate << std::endl;
 
-    // Initialize parameters 
+    // Initialize parameters
     arma::mat param(p, K, arma::fill::zeros);
     if (param_start.isNotNull()) {
         param = Rcpp::as<arma::mat>(Rcpp::NumericMatrix(param_start));
@@ -700,22 +721,21 @@ Rcpp::List MultinomLogisticSAGA(
             // old gradient for sample i
             arma::mat grad_old_i = grad_table[i];
 
-            // new gradient for sample i 
+            // new gradient for sample i
             arma::mat grad_new_i = grad_multinom_single(X.row(i), Y(i), offset.row(i), param, K);
 
-            // average gradient
+            arma::mat saga_update_direction = grad_new_i - grad_old_i + grad_avg;
+
             grad_avg += (grad_new_i - grad_old_i) / static_cast<double>(n);
 
-            // Update gradient table
             grad_table[i] = grad_new_i;
 
-            // proximal gradient descent step
-            arma::mat param_unprox = param - learning_rate * grad_avg;
+            arma::mat param_unprox = param - learning_rate * saga_update_direction;
             apply_proximal_step(param, param_unprox, learning_rate, reg_p, K, p, transpose, penalty, regul,
                                 grp_id, ncores, lam1, lam2, lam3, pos, grp, grpV, etaG, own_var, N_own_var);
         }
 
-        // Convergence Check 
+        // Convergence Check
         double param_norm = std::max(arma::norm(param_old, "fro"), 1.0);
         double diff = arma::norm(param - param_old, "fro") / param_norm;
 
@@ -743,355 +763,74 @@ Rcpp::List MultinomLogisticSAGA(
     );
 }
 
-
 arma::mat compute_gradient(
-        const arma::mat& X,
-        const arma::vec& Y,
-        const arma::vec& offsets,
-        const arma::mat& param,
-        const arma::uvec& indices,
-        bool is_minibatch = true 
+        const arma::mat& X, const arma::vec& Y, const arma::vec& offsets,
+        const arma::mat& param, const arma::uvec& indices
 ) {
     const int K = param.n_cols;
-    const arma::mat& X_subset = is_minibatch ? X.rows(indices) : X;
-    const arma::vec& Y_subset = is_minibatch ? Y.elem(indices) : Y;
-    arma::vec offsets_subset = is_minibatch ? offsets.elem(indices) : offsets;
+    const arma::mat& X_subset = X.rows(indices);
+    const arma::vec& Y_subset = Y.elem(indices);
+    arma::vec offsets_subset = offsets.elem(indices);
     const int n_samples = X_subset.n_rows;
     
-    // Vectorized Offset Clipping
-    const double clip_threshold = 10.0;
-    offsets_subset.clamp(-clip_threshold, clip_threshold);
+    offsets_subset.for_each([](arma::vec::elem_type& val) {
+        if (std::abs(val) > 20.0) {
+            val = 20.0 * std::tanh(val / 20.0);
+        }
+    });
     
-    // Vectorized Softmax Calculation
     arma::mat scores = X_subset * param;
+    scores.each_col() += offsets_subset;
+    double baseline_score = 0.0;
+    
     arma::vec max_scores = arma::max(scores, 1);
-    max_scores = arma::max(max_scores, offsets_subset);
+    max_scores.elem( arma::find(max_scores < baseline_score) ).fill(baseline_score);
     scores.each_col() -= max_scores;
     
     arma::mat probs = arma::exp(scores);
-    arma::vec exp_baseline = arma::exp(offsets_subset - max_scores);
+    arma::vec exp_baseline = arma::exp(arma::zeros<arma::vec>(n_samples) - max_scores);
     arma::vec denom = arma::sum(probs, 1) + exp_baseline;
     
-    // Safe Division
     probs.each_col() /= (denom + 1e-12);
     
-    // One-Hot Encoding
     arma::mat Y_onehot(n_samples, K, arma::fill::zeros);
     for (int i = 0; i < n_samples; ++i) {
-        if (Y_subset(i) > 0 && Y_subset(i) <= K) {
+        if (Y_subset(i) > 0 && Y_subset(i) <= K)
             Y_onehot(i, Y_subset(i) - 1) = 1.0;
-        }
     }
     
-    // Gradient Calculation
     arma::mat grad = X_subset.t() * (probs - Y_onehot);
     grad /= static_cast<double>(n_samples);
     grad.replace(arma::datum::nan, 0.0);
-    
     return grad;
 }
 
+// Lipschitz constant for the AVERAGE loss
 double estimate_lipschitz(const arma::mat& X) {
     int n = X.n_rows;
     int p = X.n_cols;
-    
     if (p == 0) return 1e-8;
     
     double max_eig;
     if (p <= 150) {
-        // Exact method for smaller matrices
         arma::mat XtX = X.t() * X;
         arma::vec eigvals = arma::eig_sym(XtX);
         max_eig = eigvals.max();
     } else {
-        // Power iteration for larger matrices
         arma::vec v = arma::randn<arma::vec>(p);
-        v /= arma::norm(v);
+        v = arma::normalise(v);
         for (int i = 0; i < 50; ++i) {
             arma::vec w = X.t() * (X * v);
             v = arma::normalise(w);
         }
         max_eig = arma::dot(v, X.t() * (X * v));
     }
-    
-    // L = lambda_max(X'X) / 4
     return std::max(max_eig / (4.0 * n), 1e-8);
 }
 
 
-// [[Rcpp::export]]
-Rcpp::List accelerated_stochastic_optimizer(
-        const arma::mat& X,
-        const arma::vec& Y,
-        const arma::vec& offset,
-        int K,
-        std::string estimator_type,
-        double tolerance,
-        int maxit,
-        int niter_inner,
-        int batch_size,
-        Rcpp::Nullable<Rcpp::NumericMatrix> param_start,
-        bool verbose,
-        int reg_p,
-        int penalty,
-        std::string regul,
-        bool transpose,
-        Rcpp::IntegerVector grp_id,
-        Rcpp::NumericVector etaG,
-        const arma::mat& grp,
-        const arma::mat& grpV,
-        Rcpp::IntegerVector own_var,
-        Rcpp::IntegerVector N_own_var,
-        double lam1,
-        double lam2,
-        double lam3,
-        bool pos,
-        int ncores
-) {
-    const int n = X.n_rows;
-    const int p = X.n_cols;
-    bool converged = false;
-    int convergence_iter = -1;
-    
-    double L = estimate_lipschitz(X) + lam2;
-    double mu = lam2; 
-    
-    double c_param = std::max(1.0, 3.0 * (double)n / batch_size);
-    double rho = (double)batch_size / n;
-    
-    double gamma; 
-    double tau; 
-    
-    if (mu > 0) { 
-        gamma = std::min(1.0 / std::sqrt(mu * c_param * L), rho / (2.0 * mu));
-        tau = mu * gamma;
-    } else { 
-        gamma = 1.0 / (2.0 * c_param * L);
-        tau = 1.0 / (c_param * L * gamma);
-    }
-    
-    if (verbose) {
-        Rcpp::Rcout << "--- Optimizer Settings ---\n"
-                    << "Estimator: " << estimator_type << "\n"
-                    << "Lipschitz (L): " << L << ", μ: " << mu << "\n"
-                    << "Step Size (γ): " << gamma << ", Momentum (τ): " << tau << std::endl;
-    }
-    
-    arma::mat z_k(p, K, arma::fill::zeros);
-    if (param_start.isNotNull()) {
-        z_k = Rcpp::as<arma::mat>(param_start);
-    }
-    arma::mat y_k = z_k;
-    arma::mat param_old = z_k;
-    
-    arma::mat snapshot_param;
-    arma::mat grad_full;
-    std::vector<arma::mat> saga_grad_table;
-    arma::mat saga_grad_avg;
-    
-    if (estimator_type == "SAGA") {
-        saga_grad_table.resize(n);
-        saga_grad_avg.zeros(p, K);
-        
-        for (int i = 0; i < n; ++i) {
-            saga_grad_table[i] = compute_gradient(X, Y, offset, z_k, {(arma::uword)i}, true);
-            saga_grad_avg += saga_grad_table[i];
-        }
-        saga_grad_avg /= static_cast<double>(n);
-    }
-    
-    // Outer loop
-    for (int outer = 1; outer <= maxit; ++outer) {
-        Rcpp::checkUserInterrupt();
-        
-        arma::uvec all_indices = arma::regspace<arma::uvec>(0, n - 1);
-        
-        if (estimator_type == "SVRG") {
-            snapshot_param = y_k; 
-            grad_full = compute_gradient(X, Y, offset, snapshot_param, all_indices, false);
-        }
-        
-        int loop_limit = (estimator_type == "SVRG") ? niter_inner : n / batch_size;
-        
-        for (int inner = 0; inner < loop_limit; ++inner) {
-            arma::mat x_k1 = tau * z_k + (1.0 - tau) * y_k;
-            arma::mat grad_vr;
-            arma::uvec batch_idx = arma::randperm(n, batch_size);
-            
-            if (estimator_type == "SVRG") {
-                arma::mat grad_current = compute_gradient(X, Y, offset, x_k1, batch_idx, true);
-                arma::mat grad_snapshot = compute_gradient(X, Y, offset, snapshot_param, batch_idx, true);
-                grad_vr = grad_current - grad_snapshot + grad_full;
-            } else if (estimator_type == "SAGA") {
-                arma::mat grad_new_i(p, K);
-                arma::mat grad_old_i(p, K, arma::fill::zeros);
-                
-                grad_new_i = compute_gradient(X, Y, offset, x_k1, batch_idx, true);
-                for(arma::uword i : batch_idx) { grad_old_i += saga_grad_table[i]; }
-                if (batch_size > 1) grad_old_i /= batch_size;
-                
-                grad_vr = grad_new_i - grad_old_i + saga_grad_avg;
-                
-                saga_grad_avg += (grad_new_i - grad_old_i) * (batch_size / static_cast<double>(n));
-                for(arma::uword i : batch_idx) { saga_grad_table[i] = grad_new_i; }
-            }
-            
-            arma::mat z_k_unprox = z_k - gamma * grad_vr;
-            apply_proximal_step(
-                z_k, z_k_unprox, gamma, reg_p, K, p, transpose, penalty, regul,
-                grp_id, ncores, lam1, lam2, lam3, pos, grp, grpV, etaG, 
-                own_var, N_own_var
-            );
-            
-            y_k = tau * z_k + (1.0 - tau) * y_k;
-        }
-        
-        // Convergence Check
-        double change = arma::norm(y_k - param_old, "fro") / (1.0 + arma::norm(param_old, "fro"));
-        if (verbose && (outer % 10 == 0 || outer == 1)) {
-            Rcpp::Rcout << "Iter " << outer << " | Change: " << change << std::endl;
-        }
-        if (change < tolerance) {
-            converged = true;
-            convergence_iter = outer;
-            if (verbose) Rcpp::Rcout << "Converged at iteration " << outer << "." << std::endl;
-            break;
-        }
-        if (!y_k.is_finite()) {
-            Rcpp::warning("Algorithm diverged with non-finite parameter values.");
-            break;
-        }
-        param_old = y_k;
-    }
-    
-    return Rcpp::List::create(
-        Rcpp::Named("Estimates") = y_k,
-        Rcpp::Named("Converged") = converged,
-        Rcpp::Named("Convergence Iteration") = convergence_iter
-    );
-}
-
-
-
-// [[Rcpp::export]]
-Rcpp::List MultinomLogisticAcc(
-        const arma::mat& X,
-        const arma::vec& Y,
-        const arma::vec& offset,
-        int K,
-        int reg_p,
-        int penalty,
-        std::string regul,
-        bool transpose,
-        Rcpp::IntegerVector grp_id,
-        Rcpp::NumericVector etaG,
-        const arma::mat& grp,
-        const arma::mat& grpV,
-        Rcpp::IntegerVector own_var,
-        Rcpp::IntegerVector N_own_var,
-        double lam1,
-        double lam2,
-        double lam3,
-        double c_factor, // Deprecated
-        double v_factor, // Deprecated
-        double tolerance = 1e-3,
-        int niter_inner = 100,
-        int maxit = 500,
-        int ncores = 1,
-        bool save_history = false, // Deprecated
-        bool verbose = false,
-        bool pos = false,
-        int batch_size = 64,
-        Rcpp::Nullable<Rcpp::NumericMatrix> param_start = R_NilValue
-) {
-    const int n = X.n_rows;
-    const int p = X.n_cols;
-    bool converged = false;
-    int convergence_iter = -1;
-    
-    double L = estimate_lipschitz(X) + lam2;
-    double mu = lam2; 
-    
-    double c_param = std::max(1.0, 3.0 * (double)n / batch_size);
-    double rho = (double)batch_size / n;
-    
-    double gamma; // Step size
-    double tau;   // Momentum parameter
-    
-    if (mu > 0) { // Strongly convex case
-        gamma = std::min(1.0 / std::sqrt(mu * c_param * L), rho / (2.0 * mu));
-        tau = mu * gamma;
-    } else { // Not strongly convex - use a small but stable constant step size
-        gamma = 1.0 / (3.0 * c_param * L);
-        tau = std::min(0.5, 1.0 / (c_param * L * gamma));
-    }
-    
-    if (verbose) {
-        Rcpp::Rcout << "--- Final Optimizer Settings ---\n"
-                    << "Lipschitz (L): " << L << ", μ: " << mu << "\n"
-                    << "Step Size (γ): " << gamma << ", Momentum (τ): " << tau << std::endl;
-    }
-    
-    arma::mat z_k(p, K, arma::fill::zeros);
-    if (param_start.isNotNull()) z_k = Rcpp::as<arma::mat>(param_start);
-    arma::mat y_k = z_k;
-    arma::mat param_old = z_k;
-    
-    for (int outer = 1; outer <= maxit; ++outer) {
-        Rcpp::checkUserInterrupt();
-        
-        arma::mat snapshot_param = y_k;
-        arma::mat grad_full = compute_gradient(X, Y, offset, snapshot_param, arma::regspace<arma::uvec>(0, n - 1), false);
-        
-        if (!grad_full.is_finite()) {
-            if (verbose) Rcpp::warning("Full gradient is non-finite. Stopping.");
-            break;
-        }
-        
-        for (int inner = 0; inner < niter_inner; ++inner) {
-            arma::mat x_k1 = tau * z_k + (1.0 - tau) * y_k;
-            
-            arma::uvec batch_idx = arma::randperm(n, batch_size);
-            arma::mat grad_current = compute_gradient(X, Y, offset, x_k1, batch_idx, true);
-            arma::mat grad_snapshot = compute_gradient(X, Y, offset, snapshot_param, batch_idx, true);
-            arma::mat grad_vr = grad_current - grad_snapshot + grad_full;
-            
-            arma::mat z_k_unprox = z_k - gamma * grad_vr;
-            apply_proximal_step(
-                z_k, z_k_unprox, gamma, reg_p, K, p, transpose, penalty, regul,
-                grp_id, ncores, lam1, lam2, lam3, pos, grp, grpV, etaG,
-                own_var, N_own_var
-            );
-            
-            y_k = tau * z_k + (1.0 - tau) * y_k;
-        }
-        
-        double change = arma::norm(y_k - param_old, "fro") / (1.0 + arma::norm(param_old, "fro"));
-        if (verbose && (outer % 10 == 0 || outer == 1)) {
-            Rcpp::Rcout << "Iter " << outer << " | Change: " << change << std::endl;
-        }
-        if (change < tolerance) {
-            converged = true;
-            convergence_iter = outer;
-            if (verbose) Rcpp::Rcout << "Converged at iteration " << outer << "." << std::endl;
-            break;
-        }
-        if (!y_k.is_finite()) {
-            Rcpp::warning("Algorithm diverged with non-finite parameter values.");
-            break;
-        }
-        param_old = y_k;
-    }
-    
-    return Rcpp::List::create(
-        Rcpp::Named("Estimates") = y_k,
-        Rcpp::Named("Converged") = converged,
-        Rcpp::Named("Convergence Iteration") = convergence_iter
-    );
-}
-
 // // [[Rcpp::export]]
-// Rcpp::List MultinomLogisticSAGA(
+// Rcpp::List MultinomLogisticAcc(
 //         const arma::mat& X,
 //         const arma::vec& Y,
 //         const arma::vec& offset,
@@ -1109,67 +848,175 @@ Rcpp::List MultinomLogisticAcc(
 //         double lam1,
 //         double lam2,
 //         double lam3,
-//         double tolerance = 1e-6,
+//         double c_factor, // Deprecated
+//         double v_factor, // Deprecated
+//         double tolerance = 1e-3,
+//         int niter_inner = 100,
 //         int maxit = 500,
 //         int ncores = 1,
+//         bool save_history = false, // Deprecated
 //         bool verbose = false,
 //         bool pos = false,
+//         int batch_size = 64,
 //         Rcpp::Nullable<Rcpp::NumericMatrix> param_start = R_NilValue
+// ) {
+//     const int n = X.n_rows;
+//     const int p = X.n_cols;
+//     bool converged = false;
+//     int convergence_iter = -1;
+//     
+//     double L = estimate_lipschitz(X) + lam2;
+//     double mu = lam2; 
+//     
+//     double c_param = std::max(1.0, 3.0 * (double)n / batch_size);
+//     double rho = (double)batch_size / n;
+//     
+//     double gamma; // Step size
+//     double tau;   // Momentum parameter
+//     
+//     if (mu > 0) { // Strongly convex case
+//         gamma = std::min(1.0 / std::sqrt(mu * c_param * L), rho / (2.0 * mu));
+//         tau = mu * gamma;
+//     } else { // Not strongly convex - use a small but stable constant step size
+//         gamma = 1.0 / (3.0 * c_param * L);
+//         tau = std::min(0.5, 1.0 / (c_param * L * gamma));
+//     }
+//     
+//     if (verbose) {
+//         Rcpp::Rcout << "--- Final Optimizer Settings ---\n"
+//                     << "Lipschitz (L): " << L << ", μ: " << mu << "\n"
+//                     << "Step Size (γ): " << gamma << ", Momentum (τ): " << tau << std::endl;
+//     }
+//     
+//     arma::mat z_k(p, K, arma::fill::zeros);
+//     if (param_start.isNotNull()) z_k = Rcpp::as<arma::mat>(param_start);
+//     arma::mat y_k = z_k;
+//     arma::mat param_old = z_k;
+//     
+//     for (int outer = 1; outer <= maxit; ++outer) {
+//         Rcpp::checkUserInterrupt();
+//         
+//         arma::mat snapshot_param = y_k;
+//         arma::mat grad_full = compute_gradient(X, Y, offset, snapshot_param, arma::regspace<arma::uvec>(0, n - 1), false);
+//         
+//         if (!grad_full.is_finite()) {
+//             if (verbose) Rcpp::warning("Full gradient is non-finite. Stopping.");
+//             break;
+//         }
+//         
+//         for (int inner = 0; inner < niter_inner; ++inner) {
+//             arma::mat x_k1 = tau * z_k + (1.0 - tau) * y_k;
+//             
+//             arma::uvec batch_idx = arma::randperm(n, batch_size);
+//             arma::mat grad_current = compute_gradient(X, Y, offset, x_k1, batch_idx, true);
+//             arma::mat grad_snapshot = compute_gradient(X, Y, offset, snapshot_param, batch_idx, true);
+//             arma::mat grad_vr = grad_current - grad_snapshot + grad_full;
+//             
+//             arma::mat z_k_unprox = z_k - gamma * grad_vr;
+//             apply_proximal_step(
+//                 z_k, z_k_unprox, gamma, reg_p, K, p, transpose, penalty, regul,
+//                 grp_id, ncores, lam1, lam2, lam3, pos, grp, grpV, etaG,
+//                 own_var, N_own_var
+//             );
+//             
+//             y_k = tau * z_k + (1.0 - tau) * y_k;
+//         }
+//         
+//         double change = arma::norm(y_k - param_old, "fro") / (1.0 + arma::norm(param_old, "fro"));
+//         if (verbose && (outer % 10 == 0 || outer == 1)) {
+//             Rcpp::Rcout << "Iter " << outer << " | Change: " << change << std::endl;
+//         }
+//         if (change < tolerance) {
+//             converged = true;
+//             convergence_iter = outer;
+//             if (verbose) Rcpp::Rcout << "Converged at iteration " << outer << "." << std::endl;
+//             break;
+//         }
+//         if (!y_k.is_finite()) {
+//             Rcpp::warning("Algorithm diverged with non-finite parameter values.");
+//             break;
+//         }
+//         param_old = y_k;
+//     }
+//     
+//     return Rcpp::List::create(
+//         Rcpp::Named("Estimates") = y_k,
+//         Rcpp::Named("Converged") = converged,
+//         Rcpp::Named("Convergence Iteration") = convergence_iter
+//     );
+// }
+
+// // [[Rcpp::export]]
+// Rcpp::List MultinomLogisticSAGA(
+//         const arma::mat& X, const arma::vec& Y, const arma::vec& offset, int K,
+//         int reg_p, int penalty, std::string regul, bool transpose,
+//         Rcpp::IntegerVector grp_id, Rcpp::NumericVector etaG,
+//         const arma::mat& grp, const arma::mat& grpV,
+//         Rcpp::IntegerVector own_var, Rcpp::IntegerVector N_own_var,
+//         double lam1, double lam2, double lam3, double tolerance = 1e-6,
+//         int maxit = 500, int ncores = 1, bool verbose = false, bool pos = false,
+//         int batch_size = 64, Rcpp::Nullable<Rcpp::NumericMatrix> param_start = R_NilValue
 // ) {
 //     const int p = X.n_cols;
 //     const int n = X.n_rows;
 //     
-//     // --- 1. Set up learning rate (Identical to your stable version) ---
-//     if (verbose) Rcpp::Rcout << "Estimating Lipschitz constant..." << std::endl;
-//     double L = get_lambda_max(X) / 4.0;
-//     L = std::max(L, 1e-4);
-//     double learning_rate = 1.0 / (L + lam2); // Add L2 effect
-//     if (verbose) Rcpp::Rcout << "  Lipschitz constant L_sum = " << L << ", Learning Rate = " << learning_rate << std::endl;
+//     // --- 1. Correctly Scaled Learning Rate ---
+//     double L_avg = estimate_lipschitz(X) + lam2;
+//     // A standard, theoretically sound learning rate for SAGA.
+//     double learning_rate = 1.0 / (3.0*L_avg);
 //     
-//     // --- 2. Initialize Parameters and SAGA variables ---
-//     arma::mat param(p, K, arma::fill::zeros);
-//     if (param_start.isNotNull()) {
-//         param = Rcpp::as<arma::mat>(Rcpp::NumericMatrix(param_start));
+//     if (verbose) {
+//         Rcpp::Rcout << "--- Definitive SAGA Settings ---\n"
+//                     << "L_avg: " << L_avg << ", Correctly Scaled Learning Rate: " << learning_rate << std::endl;
 //     }
+//     
+//     // --- 2. Initialization ---
+//     arma::mat param(p, K, arma::fill::zeros);
+//     if (param_start.isNotNull()) param = Rcpp::as<arma::mat>(param_start);
 //     
 //     std::vector<arma::mat> grad_table(n);
 //     arma::mat grad_avg(p, K, arma::fill::zeros);
 //     
-//     if (verbose) Rcpp::Rcout << "Initializing SAGA gradient table..." << std::endl;
+//     if (verbose) Rcpp::Rcout << "Initializing gradient table..." << std::endl;
 //     for(int i = 0; i < n; ++i) {
-//         // PERFORMANCE FIX: Call the fast, vectorized gradient function
 //         grad_table[i] = compute_gradient(X, Y, offset, param, {(arma::uword)i});
 //         grad_avg += grad_table[i];
 //     }
 //     grad_avg /= static_cast<double>(n);
 //     
-//     arma::mat param_old(p, K);
+//     arma::mat param_old;
 //     bool converged = false;
 //     int convergence_iter = -1;
 //     
-//     // --- 3. Main SAGA Optimization Loop (Identical logic, but faster calls) ---
-//     if (verbose) Rcpp::Rcout << "Starting SAGA optimization..." << std::endl;
+//     // --- 3. Main SAGA Loop (Fast, Batched, and Correct) ---
 //     for (int iter = 1; iter <= maxit; ++iter) {
 //         Rcpp::checkUserInterrupt();
 //         param_old = param;
 //         
 //         arma::uvec indices = arma::randperm(n);
-//         for (arma::uword j = 0; j < n; ++j) {
-//             int i = indices(j);
-//             arma::mat grad_old_i = grad_table[i];
+//         for (arma::uword i = 0; i < n / batch_size; ++i) {
+//             arma::uvec batch_idx = indices.subvec(i * batch_size, (i + 1) * batch_size - 1);
 //             
-//             // PERFORMANCE FIX: Call the fast, vectorized gradient function
-//             arma::mat grad_new_i = compute_gradient(X, Y, offset, param, {(arma::uword)i});
+//             arma::mat grad_new_batch = compute_gradient(X, Y, offset, param, batch_idx);
 //             
-//             grad_avg += (grad_new_i - grad_old_i) / static_cast<double>(n);
-//             grad_table[i] = grad_new_i;
+//             arma::mat grad_old_batch(p, K, arma::fill::zeros);
+//             for (arma::uword idx : batch_idx) {
+//                 grad_old_batch += grad_table[idx];
+//             }
+//             grad_old_batch /= static_cast<double>(batch_size);
 //             
-//             arma::mat param_unprox = param - learning_rate * grad_avg;
+//             arma::mat saga_grad = grad_new_batch - grad_old_batch + grad_avg;
+//             
+//             arma::mat param_unprox = param - learning_rate * saga_grad;
 //             apply_proximal_step(param, param_unprox, learning_rate, reg_p, K, p, transpose, penalty, regul,
 //                                 grp_id, ncores, lam1, lam2, lam3, pos, grp, grpV, etaG, own_var, N_own_var);
+//             
+//             for (arma::uword idx : batch_idx) {
+//                 grad_avg += (grad_new_batch - grad_table[idx]) / static_cast<double>(n);
+//                 grad_table[idx] = grad_new_batch;
+//             }
 //         }
 //         
-//         // --- 4. Convergence Check (Identical) ---
 //         double diff = arma::norm(param - param_old, "fro") / (1.0 + arma::norm(param_old, "fro"));
 //         if (verbose && (iter % 10 == 0 || iter == 1)) {
 //             Rcpp::Rcout << "Iter " << iter << " | Relative Change: " << diff << std::endl;
@@ -1178,10 +1025,6 @@ Rcpp::List MultinomLogisticAcc(
 //         if (diff < tolerance) {
 //             converged = true;
 //             convergence_iter = iter;
-//             break;
-//         }
-//         if (!param.is_finite()) {
-//             Rcpp::warning("Algorithm diverged with non-finite parameter values.");
 //             break;
 //         }
 //     }
