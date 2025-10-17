@@ -2,15 +2,18 @@
 % Please edit documentation in R/fit.r
 \name{print.cbSCRIP}
 \alias{print.cbSCRIP}
-\title{Print method for cbSCRIP objects}
+\title{Print a cbSCRIP object}
 \usage{
 \method{print}{cbSCRIP}(x, ...)
 }
 \arguments{
-\item{x}{An object of class 'cbSCRIP'.}
+\item{x}{An object of class \code{cbSCRIP}, the result of \code{fit_cb_model}.}
 
-\item{...}{Additional arguments.}
+\item{...}{Additional arguments (currently unused).}
+}
+\value{
+The original object \code{x}, invisibly.
 }
 \description{
-Print method for cbSCRIP objects
+Print a cbSCRIP object
 }

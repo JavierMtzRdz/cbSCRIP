@@ -295,26 +295,77 @@ fit_cb_model <- function(cb_data,
                 fit[[coef_type]] <- round(coefs_orig, 8)
             }
         }
-        return(c(fit, scaler = list(scaler)))
+        fit <- c(fit, scaler = list(scaler))
     }
+    fit <- c(fit, 
+             scaler = list(scaler),
+             adjusted = F)
     class(fit) <- "cbSCRIP"
     return(fit)
 }
 
 
-#' Print method for cbSCRIP objects
-#' @param x An object of class 'cbSCRIP'.
-#' @param ... Additional arguments.
+#' Print a cbSCRIP object
+#'
+#' @param x An object of class `cbSCRIP`, the result of `fit_cb_model`.
+#' @param ... Additional arguments (currently unused).
+#'
+#' @return The original object `x`, invisibly.
+#' @importFrom cli cat_rule cat_bullet style_bold style_italic
 #' @export
 print.cbSCRIP <- function(x, ...) {
-    cat("--- cbSCRIP ---\n")
-    cat("Converged:", x$converged)
-    if (x$converged) {
-        cat(" in", x$iterations, "iterations\n")
-    } else {
-        cat("\n")
+    # --- Header ---
+    cli::cat_rule(style_bold("Case-Base Competing Risks Model (cbSCRIP)"), col = "blue")
+    
+    # --- Model Details ---
+    # Extract lambda and alpha from the call for display
+    lambda_val <- x$call$lambda
+    alpha_val <- x$call$alpha
+    
+    cat("\n")
+    cli::cat_bullet("Regularization: ", style_italic(x$call$regularization), bullet = "info")
+    
+    # Display lambda values used for the fit
+    if (!is.null(lambda_val)) {
+        cli::cat_bullet("Lambda: ", sprintf("%.4f", lambda_val), bullet = "info")
     }
-    cat("\nCoefficients (head):\n")
-    print(head(x$coefficients))
+    if (!is.null(alpha_val)) {
+        cli::cat_bullet("Alpha: ", alpha_val, bullet = "info")
+    }
+    
+    # --- Convergence Status ---
+    cat("\n")
+    if (isTRUE(x$converged)) {
+        convergence_status <- style_bold(crayon::green("Converged"))
+        convergence_details <- paste0(" in ", x$convergence_pass, " iterations.")
+        cli::cat_bullet(convergence_status, convergence_details, bullet = "tick")
+    } else {
+        convergence_status <- style_bold(crayon::red("Did not converge"))
+        cli::cat_bullet(convergence_status, bullet = "cross")
+    }
+    
+    # --- Coefficient Summary ---
+    cat("\n")
+    cli::cat_rule("Coefficients", col = "blue")
+    
+    if (!is.null(x$coefficients)) {
+        coefs <- x$coefficients
+        
+        # Calculate non-zero coefficients per cause
+        non_zero_per_cause <- colSums(abs(coefs) > 1e-10)
+        total_vars <- nrow(coefs)
+        
+        cat("Number of non-zero coefficients (out of", total_vars, "):\n")
+        for (i in seq_along(non_zero_per_cause)) {
+            cause_name <- colnames(coefs)[i]
+            if (is.null(cause_name)) cause_name <- paste("Cause", i)
+            
+            cat(paste0("  ", cli::symbol$bullet, " ", cause_name, ": ", non_zero_per_cause[i], "\n"))
+        }
+    } else {
+        cat("No coefficients in the object.\n")
+    }
+    
+    # --- Return object invisibly ---
     invisible(x)
 }

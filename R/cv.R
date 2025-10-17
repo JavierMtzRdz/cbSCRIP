@@ -143,6 +143,7 @@ find_lambda_max <- function(cb_data,
 
 #' Generate a Lambda Grid for Regularization
 #' @return A numeric vector of lambda values.
+#' @export
 create_lambda_grid <- function(cb_data,
                                lambda,
                                nlambda,
@@ -185,7 +186,7 @@ create_lambda_grid <- function(cb_data,
             
         }
     
-    cli::cli_alert_info("Using {length(grid)} lambdas. Range: {signif(min(grid), 3)} to {signif(max(grid), 3)}")
+    if(length(grid) > 1) cli::cli_alert_info("Using {length(grid)} lambdas. Range: {signif(min(grid), 3)} to {signif(max(grid), 3)}")
     
     return(round(grid, 8))
 }
@@ -368,95 +369,6 @@ cv_cbSCRIP <- function(formula, data, regularization = 'elastic-net',
     return(result)
 }
 
-
-#' Fit a Penalized Multinomial Model over a Regularization Path
-#'
-#' Fits the case-base model for a sequence of lambda values using warm starts,
-#' returning the path of coefficients. Includes a progress bar.
-#'
-#' @inheritParams cv_cbSCRIP
-#' @return An object of class `cb.path` containing coefficient paths.
-#' @export
-path_cbSCRIP <- function(formula, data, regularization = 'elastic-net', 
-                    cb_data = NULL,
-                    alpha = NULL,
-                    lambda = NULL,
-                    nlambda = 100, n_unpenalized = 2,
-                    ratio = 25, ratio_event = 1,
-                    lambda_max = NULL,
-                    lambda.min.ratio = NULL,
-                    warm_start = T,
-                    ...) {
-    
-    # Create the full case-base dataset 
-    cli::cli_alert_info("Creating case-base dataset...")
-    
-    if(is.null(cb_data)){
-        
-        cb_data <- create_cb_data(formula, data, ratio = ratio,
-                                  ratio_event = ratio_event)
-    }
-    
-    all_event_levels <- sort(unique(cb_data$event))
-    
-    n_event_types <- length(all_event_levels)
-    
-    lambdagrid <- create_lambda_grid(cb_data = cb_data,
-                                     lambda = lambda,
-                                     nlambda = nlambda,
-                                     lambda_max = lambda_max,
-                                     lambda.min.ratio = lambda.min.ratio,
-                                     regularization = regularization,
-                                     alpha = alpha,
-                                     n_unpenalized = n_unpenalized,
-                                     ...)
-    nlambda <- length(lambdagrid)
-    
-    
-    cli::cli_alert_info("Fitting model path for {nlambda} lambda values...")
-    
-    path_fits <- vector("list", nlambda)
-    
-    param_start <- NULL #
-    
-    cli::cli_progress_bar("Fitting Path", total = nlambda)
-    for (i in seq_along(lambdagrid)) {
-        
-        model_info <- fit_cb_model(
-            cb_data = cb_data,
-            lambda = lambdagrid[i],
-            regularization = regularization,
-            alpha = alpha,
-            n_unpenalized = n_unpenalized,
-            param_start = param_start, # Pass warm start
-            ...
-        )
-        path_fits[[i]] <- model_info
-        
-        # Update the warm start for the next iteration
-        if(warm_start) param_start <- model_info$coefficients
-        
-        cli::cli_progress_update()
-    }
-    # Extract the re-scaled coefficients 
-    coefficients <- purrr::map(path_fits, ~.x$coefficients)
-    
-    non_zero <- purrr::map(path_fits, ~sum(!same(.x$coefficients, 0)))
-    
-    result <- list(
-        coefficients = coefficients,
-        non_zero = non_zero,
-        lambdagrid = lambdagrid,
-        models_info = path_fits,
-        cb_data = cb_data,
-        call = match.call()
-    )
-    
-    class(result) <- "cbSCRIP.path"
-    cli::cli_alert_success("Path fitting complete.")
-    return(result)
-}
-
 #' Print a cbSCRIP.cv object
 #'
 #' @param x An object of class `cbSCRIP.cv`, the result of `cv_cbSCRIP`.
@@ -525,4 +437,244 @@ print.cbSCRIP.path <- function(x, ...) {
     
     # Return the original object invisibly
     invisible(x)
+}
+
+#' Refit Models Along a Regularization Path
+#'
+#' For each lambda in a `cbSCRIP.path` object, this function identifies the
+#' selected variables and refits a standard (unpenalized) `casebase` model
+#' using only that subset.
+#'
+#' @param object A fitted object of class
+#' @param coeffs A character string specifying the type of coefficients to return.
+#' @param ... Additional arguments (currently unused).
+#'
+#' @return An object of class `cbSCRIP.path`, where the `coefficients` list
+#'   contains the refitted coefficients. A new element, `refitted_models`, is
+#'   also added, containing the full model objects from each refit.
+#'
+#' @importFrom stats as.formula coef
+#' @importFrom purrr map map2
+#' @importFrom cli cli_alert_info cli_progress_bar cli_progress_update
+#' @export
+refit_cbSCRIP <- function(object, ...) {
+    
+    cli::cli_alert_info("Refitting models for each lambda using only selected variables...")
+    # Extract necessary components from the original object
+    cb_data <- object$cb_data
+    original_call <- object$call
+    
+    # Get the original ratio used for fitting
+    ratio <- ifelse(!is.null(original_call$ratio), eval(original_call$ratio), 50)
+    
+    # Set up a progress bar
+    cli::cli_progress_bar("Refitting Path", total = length(object$lambdagrid))
+    
+    # Iterate over each set of coefficients in the path to refit the models
+    progressr::with_progress({
+        # Define the progressor
+        p <- progressr::progressor(steps = length(object$lambdagrid))
+        refitted_models <- purrr::map(object$coefficients, function(coef_matrix) {
+            
+            # Identify variables with non-zero coefficients for any cause
+            selected_vars_logical <- (rowSums(abs(coef_matrix)) > 1e-10) & (rownames(coef_matrix) %in% colnames(cb_data$covariates))
+            selected_vars_names <- rownames(coef_matrix)[selected_vars_logical]
+            
+            # Handle the case where no variables are selected (intercept-only model)
+            if (length(selected_vars_names) == 0) {
+                refit_formula_str <- "status ~ 1 + log(time)"
+                # Data still needs time and status columns for fitSmoothHazard
+                refit_data <- data.frame(time = cb_data$time, status = cb_data$event)
+            } else {
+                # Prepare data with only the selected covariates
+                refit_data <- as.data.frame(cb_data$covariates[, selected_vars_names, drop = FALSE])
+                refit_data[["time"]] <- cb_data$time
+                refit_data[["status"]] <- cb_data$event
+                refit_data[["offset"]] <- cb_data$offset
+                
+                class(refit_data) <- c("cbData", class(refit_data))
+                
+                # Create the new formula for refitting
+                refit_formula_str <- paste("status ~",
+                                           paste(make.names(selected_vars_names), collapse = " + "),
+                                           "+ log(time)"
+                )
+            }
+            
+            # Refit the model using casebase::fitSmoothHazard
+            refitted_model <- tryCatch({
+                casebase::fitSmoothHazard(
+                    formula = as.formula(refit_formula_str),
+                    data = refit_data,
+                    time = "time",
+                    ratio = ratio
+                )
+            }, error = function(e) {
+                warning(paste("Refitting failed for one lambda value:", e$message))
+                return(NULL)
+            })
+            
+            return(refitted_model)
+        })
+    })
+    
+    # Reconstruct the coefficient list in the original format
+    # Get dimensions and names from the first original coefficient matrix
+    orig_coef_template <- object$coefficients[[1]]
+    p_orig <- nrow(orig_coef_template)
+    K_orig <- ncol(orig_coef_template)
+    
+    refitted_coefficients <- purrr::map(refitted_models, function(model) {
+        
+        # Create an empty matrix with the original dimensions and names
+        full_coef_mat <- matrix(0, nrow = p_orig, ncol = K_orig,
+                                dimnames = list(rownames(orig_coef_template),
+                                                colnames(orig_coef_template)))
+        if (!is.null(model)) {
+            refit_coefs <- coef(model) # This is the named vector
+            
+            # Iterate through the named vector to parse names and place coefficients
+            for (i in seq_along(refit_coefs)) {
+                coef_name <- names(refit_coefs)[i]
+                coef_val <- refit_coefs[i]
+                
+                # Split "X1:1" into "X1" and "1"
+                parts <- strsplit(coef_name, ":")[[1]]
+                var_name <- parts[1]
+                cause_idx <- as.integer(parts[2])
+                
+                # Check if the variable and cause exist in our template matrix
+                if (var_name %in% rownames(full_coef_mat) && cause_idx <= K_orig) {
+                    full_coef_mat[var_name, cause_idx] <- coef_val
+                }
+            }
+        }
+        return(full_coef_mat)
+    })
+    
+    # Update the object with the new, adjusted coefficients and the refitted models
+    object$coefficients <- refitted_coefficients
+    object$refitted_models <- refitted_models
+    
+    return(object)
+}
+
+#' Fit a Penalized Multinomial Model over a Regularization Path
+#'
+#' Fits the case-base model for a sequence of lambda values using warm starts,
+#' returning the path of coefficients. Includes a progress bar.
+#'
+#' @inheritParams cv_cbSCRIP
+#' @return An object of class `cb.path` containing coefficient paths.
+#' @export
+cbSCRIP <- function(formula, data, regularization = 'elastic-net', 
+                    cb_data = NULL,
+                    alpha = NULL,
+                    lambda = NULL,
+                    nlambda = 100, n_unpenalized = 2,
+                    ratio = 25, ratio_event = 1,
+                    lambda_max = NULL,
+                    lambda.min.ratio = NULL,
+                    warm_start = T,
+                    coeffs = c("adjusted", "original"),
+                    ...) {
+    
+    # Create the full case-base dataset 
+    
+    if(is.null(cb_data)){
+        
+        cli::cli_alert_info("Creating case-base dataset...")
+        
+        cb_data <- create_cb_data(formula, data, ratio = ratio,
+                                  ratio_event = ratio_event)
+    }
+    
+    all_event_levels <- sort(unique(cb_data$event))
+    
+    n_event_types <- length(all_event_levels)
+    
+    lambdagrid <- create_lambda_grid(cb_data = cb_data,
+                                     lambda = lambda,
+                                     nlambda = nlambda,
+                                     lambda_max = lambda_max,
+                                     lambda.min.ratio = lambda.min.ratio,
+                                     regularization = regularization,
+                                     alpha = alpha,
+                                     n_unpenalized = n_unpenalized,
+                                     ...)
+    nlambda <- length(lambdagrid)
+    
+    if (nlambda > 1) {
+        
+        cli::cli_alert_info("Fitting model path for {nlambda} lambda values...")
+        
+        path_fits <- vector("list", nlambda)
+        
+        param_start <- NULL #
+        
+        cli::cli_progress_bar("Fitting Path", total = nlambda)
+        for (i in seq_along(lambdagrid)) {
+            
+            model_info <- fit_cb_model(
+                cb_data = cb_data,
+                lambda = lambdagrid[i],
+                regularization = regularization,
+                alpha = alpha,
+                n_unpenalized = n_unpenalized,
+                param_start = param_start, # Pass warm start
+                ...
+            )
+            path_fits[[i]] <- model_info
+            
+            # Update the warm start for the next iteration
+            if(warm_start) param_start <- model_info$coefficients
+            
+            cli::cli_progress_update()
+        }
+        # Extract the re-scaled coefficients 
+        coefficients <- purrr::map(path_fits, ~.x$coefficients)
+        
+        non_zero <- purrr::map(path_fits, ~sum(!same(.x$coefficients, 0)))
+        
+        result <- list(
+            coefficients = coefficients,
+            non_zero = non_zero,
+            lambdagrid = lambdagrid,
+            models_info = path_fits,
+            cb_data = cb_data,
+            call = match.call()
+        )
+        
+        coeffs <- rlang::arg_match(coeffs)
+        
+        if (coeffs == "adjusted") {
+            result <- refit_cbSCRIP(result)
+        }
+        
+        class(result) <- "cbSCRIP.path"
+        cli::cli_alert_success("Path fitting complete.")
+        
+    } else {
+        result <- fit_cb_model(
+            cb_data = cb_data,
+            lambda = lambdagrid,
+            regularization = regularization,
+            alpha = alpha,
+            n_unpenalized = n_unpenalized,
+            ...
+        )
+        
+        result$coefficients <- list(result$coefficients)
+        
+        result$cb_data <- cb_data
+        
+        result <- refit_cbSCRIP(result)
+        
+        result$coefficients <- result$coefficients[[1]]
+        
+        result$refitted_models <- result$refitted_models[[1]]
+        
+    }
+    
+    return(result)
 }
