@@ -456,3 +456,73 @@ path_cbSCRIP <- function(formula, data, regularization = 'elastic-net',
     cli::cli_alert_success("Path fitting complete.")
     return(result)
 }
+
+#' Print a cbSCRIP.cv object
+#'
+#' @param x An object of class `cbSCRIP.cv`, the result of `cv_cbSCRIP`.
+#' @param ... Additional arguments passed to other methods.
+#'
+#' @return The original object `x`, invisibly.
+#' @export
+print.cbSCRIP.cv <- function(x, ...) {
+    # Header for the output
+    cat("--- Cross-Validated Case-Base Competing Risks Model ---\n\n")
+    
+    # Print the function call
+    cat("Call:\n")
+    print(x$call)
+    cat("\n")
+    
+    # Determine number of folds and lambda values
+    n_folds <- ncol(x$deviance_matrix)
+    n_lambda <- length(x$lambdagrid)
+    cat(paste0("Performed ", n_folds, "-fold cross-validation over ",
+               n_lambda, " lambda values.\n\n"))
+    
+    # Get the index of the minimum deviance
+    idx_min <- which.min(x$deviance_mean)
+    
+    # Report the optimal lambda values
+    cat("Optimal Lambda Values:\n")
+    cat(sprintf("  Lambda with minimum deviance (lambda.min): %.4f\n", x$lambda.min))
+    cat(sprintf("  Largest lambda within 1 SE of min (lambda.1se): %.4f\n\n", x$lambda.1se))
+    
+    # Report the number of non-zero coefficients for the final fitted model
+    n_nonzero <- sum(x$fit.min$coefficients != 0)
+    cat(paste0("The final model (fit.min) was fit using lambda.min and has ",
+               n_nonzero, " non-zero coefficients.\n"))
+    
+    # Return the original object invisibly
+    invisible(x)
+}
+
+#' Print a cbSCRIP.path object
+#'
+#' @param x An object of class `cbSCRIP.path`, the result of `path_cbSCRIP`.
+#' @param ... Additional arguments passed to other methods.
+#'
+#' @return The original object `x`, invisibly.
+#' @export
+print.cbSCRIP.path <- function(x, ...) {
+    # Header for the output
+    cat("--- Case-Base Competing Risks Model Path ---\n\n")
+    
+    # Print the function call
+    cat("Call:\n")
+    print(x$call)
+    cat("\n")
+    
+    # Summary of the regularization path
+    n_lambda <- length(x$lambdagrid)
+    cat(paste0("Regularization path fit for ", n_lambda, " lambda values.\n"))
+    
+    # Get the number of non-zero coefficients at the first and last lambda
+    n_nonzero_start <- x$non_zero[[1]]
+    n_nonzero_end <- x$non_zero[[n_lambda]]
+    
+    cat(paste0("Number of non-zero coefficients: from ",
+               n_nonzero_start, " to ", n_nonzero_end, ".\n"))
+    
+    # Return the original object invisibly
+    invisible(x)
+}

@@ -3,6 +3,8 @@
 S3method(plot,cbSCRIP.cv)
 S3method(plot,cbSCRIP.path)
 S3method(print,cbSCRIP)
+S3method(print,cbSCRIP.cv)
+S3method(print,cbSCRIP.path)
 export(MNlogistic)
 export(MNlogisticSAGA)
 export(create_cb_data)
