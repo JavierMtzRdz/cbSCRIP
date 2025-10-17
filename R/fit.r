@@ -329,11 +329,14 @@ print.cbSCRIP <- function(x, ..., print_limit = 10) {
     lambda_val <- x$call$lambda1 %||% x$call$lambda
     alpha_val <- x$call$alpha
     
-    cli::cat_bullet("Regularization: ", cli::style_italic(x$call$regularization), bullet = "info")
-    if (!is.null(lambda_val)) {
+    if (!is.null(lambda_expr)) {
+        # Evaluate the expression to get its numeric value
+        lambda_val <- eval(lambda_expr, envir = parent.frame())
         cli::cat_bullet("Lambda: ", sprintf("%.4f", lambda_val), bullet = "info")
     }
-    if (!is.null(alpha_val)) {
+    if (!is.null(alpha_expr)) {
+        # Also evaluate alpha for robustness
+        alpha_val <- eval(alpha_expr, envir = parent.frame())
         cli::cat_bullet("Alpha (for elastic-net): ", alpha_val, bullet = "info")
     }
     

@@ -579,6 +579,8 @@ cbSCRIP <- function(formula, data, regularization = 'elastic-net',
                     coeffs = c("adjusted", "original"),
                     ...) {
     
+    coeffs <- rlang::arg_match(coeffs)
+    
     # Create the full case-base dataset 
     
     if(is.null(cb_data)){
@@ -645,8 +647,6 @@ cbSCRIP <- function(formula, data, regularization = 'elastic-net',
             call = match.call()
         )
         
-        coeffs <- rlang::arg_match(coeffs)
-        
         if (coeffs == "adjusted") {
             result <- refit_cbSCRIP(result)
         }
@@ -664,18 +664,23 @@ cbSCRIP <- function(formula, data, regularization = 'elastic-net',
             ...
         )
         
-        result$coefficients <- list(result$coefficients)
-        
         result$cb_data <- cb_data
         
-        result <- refit_cbSCRIP(result)
+        if (coeffs == "adjusted") {
+            
+            result$coefficients <- list(result$coefficients)
+            
+            result <- refit_cbSCRIP(result)
+            
+            result$coefficients <- result$coefficients[[1]]
+            
+            result$refitted_models <- result$refitted_models[[1]]
+        }
         
-        result$coefficients <- result$coefficients[[1]]
         
-        result$refitted_models <- result$refitted_models[[1]]
+        result$call <- match.call()
         
-        result <- c(result, call = match.call())
-        
+        class(result) <- "cbSCRIP"
     }
     
     return(result)
