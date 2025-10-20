@@ -81,9 +81,9 @@ arma::mat grad_multinom_single(
     double offset = offset_val(0);
     
     // Soft-clip the offset for numerical stability.
-    // if (std::abs(offset) > 20.0) {
-    //     offset = 20.0 * std::tanh(offset / 20.0);
-    // }
+    if (std::abs(offset) > 50.0) {
+        offset = 50.0 * std::tanh(offset / 50.0);
+    }
     
     // 2. Add the offset to the scores of the K explicit classes.
     arma::vec linear_scores = param.t() * x.t() + offset; 
@@ -672,6 +672,8 @@ Rcpp::List MultinomLogisticSAGA(
         double lam2,
         double lam3,
         double tolerance = 1e-6,
+        double lr_adj = 1.0,
+        double max_lr = 1e-03,
         int maxit = 500,
         int ncores = 1,
         bool verbose = false,
@@ -683,9 +685,10 @@ Rcpp::List MultinomLogisticSAGA(
 
     // learning rate based on Lipschitz constant
     if (verbose) Rcpp::Rcout << "Estimating Lipschitz constant..." << std::endl;
-    double L = get_lambda_max(X) / 1000.0;
+    double L = get_lambda_max(X) / 4.0;
 
-    double learning_rate = 1.0 / L;
+    double learning_rate = std::min(lr_adj / L, max_lr);
+    
     if (verbose) Rcpp::Rcout << "  Lipschitz constant L = " << L << ", Learning Rate = " << learning_rate << std::endl;
 
     // Initialize parameters

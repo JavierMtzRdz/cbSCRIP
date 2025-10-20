@@ -21,7 +21,7 @@ MultinomLogistic <- function(X, Y, offset, K, reg_p, penalty, regul, transpose, 
     .Call(`_cbSCRIP_MultinomLogistic`, X, Y, offset, K, reg_p, penalty, regul, transpose, grp_id, etaG, grp, grpV, own_var, N_own_var, lam1, lam2, lam3, learning_rate, tolerance, niter_inner, maxit, ncores, save_history, verbose, param_start)
 }
 
-MultinomLogisticSAGA <- function(X, Y, offset, K, reg_p, penalty, regul, transpose, grp_id, etaG, grp, grpV, own_var, N_own_var, lam1, lam2, lam3, tolerance = 1e-6, maxit = 500L, ncores = 1L, verbose = FALSE, pos = FALSE, param_start = NULL) {
-    .Call(`_cbSCRIP_MultinomLogisticSAGA`, X, Y, offset, K, reg_p, penalty, regul, transpose, grp_id, etaG, grp, grpV, own_var, N_own_var, lam1, lam2, lam3, tolerance, maxit, ncores, verbose, pos, param_start)
+MultinomLogisticSAGA <- function(X, Y, offset, K, reg_p, penalty, regul, transpose, grp_id, etaG, grp, grpV, own_var, N_own_var, lam1, lam2, lam3, tolerance = 1e-6, lr_adj = 1.0, max_lr = 1e-03, maxit = 500L, ncores = 1L, verbose = FALSE, pos = FALSE, param_start = NULL) {
+    .Call(`_cbSCRIP_MultinomLogisticSAGA`, X, Y, offset, K, reg_p, penalty, regul, transpose, grp_id, etaG, grp, grpV, own_var, N_own_var, lam1, lam2, lam3, tolerance, lr_adj, max_lr, maxit, ncores, verbose, pos, param_start)
 }
 

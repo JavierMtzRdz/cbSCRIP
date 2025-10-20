@@ -262,17 +262,19 @@ MNlogistic <- function(X, Y, offset, N_covariates,
 
 #' @export
 MNlogisticSAGA <- function(X, Y, offset, N_covariates,
-                                regularization = 'l1', transpose = FALSE,
-                                lambda1, lambda2 = 0, lambda3 = 0,
-                                pos = FALSE,          #  Positivity constraint
-                                tolerance = 1e-4,
-                                # niter_inner_mtplyr = 2,
-                                maxit = 100, ncores = -1,
-                                group_id = NULL, group_weights = NULL, # etaG
-                                groups = NULL, groups_var = NULL,     # grp, grpV
-                                own_variables = NULL, N_own_variables = NULL,
-                                param_start = NULL, verbose = FALSE,
-                                save_history = FALSE) {
+                           regularization = 'l1', transpose = FALSE,
+                           lambda1, lambda2 = 0, lambda3 = 0,
+                           pos = FALSE,          #  Positivity constraint
+                           tolerance = 1e-4,
+                           # niter_inner_mtplyr = 2,
+                           maxit = 100, ncores = -1,
+                           lr_adj = 1,
+                           learning_rate = 1e-03,
+                           group_id = NULL, group_weights = NULL, # etaG
+                           groups = NULL, groups_var = NULL,     # grp, grpV
+                           own_variables = NULL, N_own_variables = NULL,
+                           param_start = NULL, verbose = FALSE,
+                           save_history = FALSE) {
     
     nx <- nrow(X)
     if (!is.matrix(X)) X <- as.matrix(X) # Ensure X is a matrix
@@ -360,6 +362,8 @@ MNlogisticSAGA <- function(X, Y, offset, N_covariates,
                                   grpV = groups_var,
                                   own_var = own_variables,
                                   N_own_var = N_own_variables,
+                                  lr_adj = as.double(lr_adj),
+                                  max_lr = as.double(learning_rate),
                                   lam1 = as.double(lambda1),
                                   lam2 = as.double(lambda2),
                                   lam3 = as.double(lambda3),

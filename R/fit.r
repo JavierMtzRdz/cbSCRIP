@@ -299,7 +299,8 @@ fit_cb_model <- function(cb_data,
     }
     fit <- c(fit, 
              scaler = list(scaler),
-             adjusted = F)
+             adjusted = F,
+             call = match.call())
     class(fit) <- "cbSCRIP"
     return(fit)
 }
@@ -326,8 +327,8 @@ print.cbSCRIP <- function(x, ..., print_limit = 10) {
     
     # --- Model & Penalty Details ---
     # Use rlang::`%||%` to handle cases where lambda might be named differently
-    lambda_val <- x$call$lambda1 %||% x$call$lambda
-    alpha_val <- x$call$alpha
+    lambda_expr <- x$call$lambda
+    alpha_expr <- x$call$alpha
     
     if (!is.null(lambda_expr)) {
         # Evaluate the expression to get its numeric value
@@ -339,18 +340,6 @@ print.cbSCRIP <- function(x, ..., print_limit = 10) {
         alpha_val <- eval(alpha_expr, envir = parent.frame())
         cli::cat_bullet("Alpha (for elastic-net): ", alpha_val, bullet = "info")
     }
-    
-    # --- Convergence Status ---
-    cat("\n")
-    if (isTRUE(x$converged)) {
-        status <- cli::style_bold(crayon::green("Converged"))
-        details <- paste0(" in ", x$convergence_pass, " iterations.")
-        cli::cat_bullet(status, details, bullet = cli::symbol$tick)
-    } else {
-        status <- cli::style_bold(crayon::red("Did not converge"))
-        cli::cat_bullet(status, bullet = cli::symbol$cross)
-    }
-    cat("\n")
     
     # --- Selected Coefficients Details ---
     cli::cat_rule("Selected Coefficients", col = "blue")

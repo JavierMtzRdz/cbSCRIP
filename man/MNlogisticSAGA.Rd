@@ -160,6 +160,8 @@ MNlogisticSAGA(
   tolerance = 1e-04,
   maxit = 100,
   ncores = -1,
+  lr_adj = 1,
+  learning_rate = 0.001,
   group_id = NULL,
   group_weights = NULL,
   groups = NULL,
