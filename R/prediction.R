@@ -13,7 +13,7 @@
 #' @export
 predictRisk.CompRisk <- function(object, newdata, times, cause, ...) {
     # Extract original covariates from the model object
-    coVars <- colnames(object@originalData[, c(grepl("X", colnames(object@originalData)))])
+    coVars <- colnames(object@x[, c(grepl("X", colnames(object@x)))])
     newdata <- data.matrix(drop(subset(newdata, select = coVars)))
     
     if (missing(cause)) {

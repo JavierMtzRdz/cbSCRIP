@@ -5,41 +5,40 @@
 #'   dimensional consistency.
 #' @return The multinomial deviance value.
 calc_multinom_deviance <- function(cb_data, fit_object, all_event_levels) {
-    # 1. Reconstruct the design matrix (ensure this matches the fitting process)
+    # Reconstruct design matrix
     X <- as.matrix(cbind(cb_data$covariates, time = log(cb_data$time), 1))
     
-    # 2. Get the essential offset term
+    # Get the offset term
     offset <- cb_data$offset
     if (is.null(offset)) {
-        stop("`offset` not found in cb_data. It is essential for deviance calculation.")
+        stop("`offset` not found in cb_data.")
     }
     
-    # 3. Calculate scores for event classes using the GLM offset convention
-    fitted_vals <- X %*% fit_object$coefficients
-    scores_events <- fitted_vals + offset
+    # Calculate scores for all classes
+    scores_events <- (X %*% fit_object$coefficients) + offset
+    scores_baseline <- rep(0, nrow(X))
+    all_scores <- cbind(scores_baseline, scores_events)
     
-    # 4. Manually compute the softmax probabilities, including the baseline
-    # The baseline score is 0, so its exponential is exp(0) = 1
-    exp_scores_events <- exp(scores_events)
-    denominator <- 1 + rowSums(exp_scores_events)
+    # Log-Sum-Exp Trick 
+    max_scores <- apply(all_scores, 1, max, na.rm = TRUE)
     
-    # Probabilities of the event classes
-    prob_events <- exp_scores_events / denominator
-    # Probability of the baseline class (event = 0)
-    prob_baseline <- 1 / denominator
+    # Subtract the max score before exponentiating to prevent overflow
+    stabilized_scores <- all_scores - max_scores
+    exp_scores <- exp(stabilized_scores)
     
-    # 5. Combine into the final predicted probability matrix `mu`
-    # Ensure the column order matches `all_event_levels`
-    pred_mat <- cbind(prob_baseline, prob_events)
-    # Assuming event levels are 0, 1, 2...
-    colnames(pred_mat) <- c(0, 1:ncol(prob_events))
+    # Calculate probabilities using the stabilized values
+    denominator <- rowSums(exp_scores)
+    pred_mat <- exp_scores / denominator
+    
+    # Ensure column order and names are correct
+    colnames(pred_mat) <- c(0, 1:(ncol(pred_mat)-1))
     pred_mat <- pred_mat[, as.character(all_event_levels)]
     
-    # 6. Create the observed outcome matrix (Y_mat)
+    # Create the observed outcome matrix (Y_mat)
     Y_fct <- factor(cb_data$event, levels = all_event_levels)
     Y_mat <- model.matrix(~ Y_fct - 1)
     
-    # 7. Calculate deviance with the CORRECT predicted probabilities
+    # Calculate deviance with stable probabilities
     VGAM::multinomial()@deviance(mu = pred_mat, y = Y_mat, w = rep(1, nrow(X)))
 }
 
@@ -158,7 +157,7 @@ create_lambda_grid <- function(cb_data,
     
     nvars <- ncol(cb_data$covariates)
     
-    if (is.null(lambda.min.ratio)) lambda.min.ratio <- ifelse(nobs < nvars, 0.01, 5e-04)
+    if (is.null(lambda.min.ratio)) lambda.min.ratio <- ifelse(nobs < nvars, 0.01, 1e-03)
     
     if(is.null(lambda)){
         
@@ -471,51 +470,65 @@ refit_cbSCRIP <- function(object, ...) {
     cli::cli_progress_bar("Refitting Path", total = length(object$lambdagrid))
     
     # Iterate over each set of coefficients in the path to refit the models
-    progressr::with_progress({
-        # Define the progressor
-        p <- progressr::progressor(steps = length(object$lambdagrid))
-        refitted_models <- purrr::map(object$coefficients, function(coef_matrix) {
+    # progressr::with_progress({
+    # Define the progressor
+    p <- progressr::progressor(steps = length(object$lambdagrid))
+    refitted_models <- purrr::map(object$coefficients, function(coef_matrix) {
+        
+        # Identify variables with non-zero coefficients for any cause
+        selected_vars_logical <- (rowSums(abs(coef_matrix)) > 1e-10) & (rownames(coef_matrix) %in% colnames(cb_data$covariates))
+        selected_vars_names <- rownames(coef_matrix)[selected_vars_logical]
+        
+        # Handle the case where no variables are selected (intercept-only model)
+        if (length(selected_vars_names) == 0) {
+            refit_formula_str <- "status ~ 1 + log(time)"
+            # Data still needs time and status columns for fitSmoothHazard
+            refit_data <- data.frame(time = cb_data$time, status = cb_data$event)
+        } else {
+            # Prepare data with only the selected covariates
+            refit_data <- as.data.frame(cb_data$covariates[, selected_vars_names, drop = FALSE])
+            refit_data[["time"]] <- cb_data$time
+            refit_data[["status"]] <- cb_data$event
+            refit_data[["offset"]] <- cb_data$offset
             
-            # Identify variables with non-zero coefficients for any cause
-            selected_vars_logical <- (rowSums(abs(coef_matrix)) > 1e-10) & (rownames(coef_matrix) %in% colnames(cb_data$covariates))
-            selected_vars_names <- rownames(coef_matrix)[selected_vars_logical]
+            class(refit_data) <- c("cbData", class(refit_data))
             
-            # Handle the case where no variables are selected (intercept-only model)
-            if (length(selected_vars_names) == 0) {
-                refit_formula_str <- "status ~ 1 + log(time)"
-                # Data still needs time and status columns for fitSmoothHazard
-                refit_data <- data.frame(time = cb_data$time, status = cb_data$event)
-            } else {
-                # Prepare data with only the selected covariates
-                refit_data <- as.data.frame(cb_data$covariates[, selected_vars_names, drop = FALSE])
-                refit_data[["time"]] <- cb_data$time
-                refit_data[["status"]] <- cb_data$event
-                refit_data[["offset"]] <- cb_data$offset
-                
-                class(refit_data) <- c("cbData", class(refit_data))
-                
-                # Create the new formula for refitting
-                refit_formula_str <- paste("status ~",
-                                           paste(make.names(selected_vars_names), collapse = " + "),
-                                           "+ log(time)"
-                )
-            }
+            # Create the new formula for refitting
+            refit_formula_str <- paste("status ~",
+                                       paste(make.names(selected_vars_names), collapse = " + "),
+                                       "+ log(time) + offset(offset)"
+            )
+        }
+        
+        cb_data$covariates <- cb_data$covariates[, selected_vars_names, drop = FALSE]
+        
+        # Refit the model using casebase::fitSmoothHazard
+        refitted_model <- tryCatch({
             
-            # Refit the model using casebase::fitSmoothHazard
-            refitted_model <- tryCatch({
-                casebase::fitSmoothHazard(
-                    formula = as.formula(refit_formula_str),
-                    data = refit_data,
-                    time = "time",
-                    ratio = ratio
-                )
-            }, error = function(e) {
-                warning(paste("Refitting failed for one lambda value:", e$message))
-                return(NULL)
-            })
+            model <- VGAM::vglm(as.formula(refit_formula_str),
+                                data = refit_data,
+                                family = VGAM::multinomial(refLevel = 1),
+                                control = VGAM::vglm.control(crit = "coef", 
+                                                             step = 0.5,
+                                                             epsil = 1e-8,
+                                                             maxit = 40))
             
-            return(refitted_model)
+            typeEvents <- sort(unique(refit_data[["status"]]))
+            
+            new("CompRisk", model,
+                originalData = data.frame(),
+                typeEvents = typeEvents,
+                timeVar = "time",
+                eventVar = "status"
+            )
+            
+        }, error = function(e) {
+            warning(paste("Refitting failed for one lambda value:", e$message))
+            return(NULL)
         })
+        
+        return(refitted_model)
+        # })
     })
     
     # Reconstruct the coefficient list in the original format
@@ -555,6 +568,8 @@ refit_cbSCRIP <- function(object, ...) {
     # Update the object with the new, adjusted coefficients and the refitted models
     object$coefficients <- refitted_coefficients
     object$refitted_models <- refitted_models
+    
+    object$adjusted <- TRUE
     
     return(object)
 }
@@ -675,6 +690,10 @@ cbSCRIP <- function(formula, data, regularization = 'elastic-net',
             result$coefficients <- result$coefficients[[1]]
             
             result$refitted_models <- result$refitted_models[[1]]
+            
+            result$adjusted <- TRUE
+            
+        
         }
         
         
