@@ -47,98 +47,162 @@ calc_multinom_deviance <- function(cb_data, fit_object, all_event_levels) {
 #' Find the Maximum Lambda (lambda_max)
 #' @param ... Other arguments passed to find_lambda_max.
 #' @return The estimated lambda_max value.
-find_lambda_max <- function(cb_data,
-                            n_unpenalized,
-                            alpha,
-                            regularization,
-                            ...) {
+find_lambda_max <- function(cb_data, n_unpenalized, alpha) {
     
-    n_event_types <- length(unique(cb_data$event))
-    null_model_coefs <- n_unpenalized * (n_event_types - 1)
-    search_grid <- round(exp(seq(log(7), log(0.005), length.out = 5)), 8)
+    # Handle alpha = 0 (Ridge), which has no "lambda_max" for sparsity
+    if (alpha == 0) {
+        cli::cli_warn("lambda_max is undefined.")
+    }
     
-    progressr::handlers("cli")
+    # Get data components
+    X_full <- as.matrix(cb_data$covariates)
+    Y_factor <- as.factor(cb_data$event)
+    offsets <- cb_data$offset
     
-    progressr::with_progress({
-        fine_grid_size <- 5
-        
-        p <- progressr::progressor(steps = length(search_grid) + fine_grid_size)
-        
-        # Helper function to fit the model and advance the progress bar
-        fit_and_get_count <- function(lambda_val) {
-            
-            fit_model <- fit_cb_model(
-                cb_data,
-                lambda = lambda_val,
-                regularization = regularization,
-                alpha = alpha,
-                n_unpenalized = n_unpenalized,
-                ...
-            )
-            result <- sum(!same(fit_model$coefficients, 0))
-            
-            p()
-            
-            return(result)
-        }
-        
-        # Coarse Search
-        cli::cli_alert_info("Searching for lambda_max (coarse grid)...")
-        coarse_results <- furrr::future_map_dbl(
-            .x = search_grid,
-            .f = fit_and_get_count,
-            .options = furrr::furrr_options(
-                globals = TRUE,
-                seed = TRUE
-            )
-        )
-        
-        upper_idx <- which(coarse_results <= null_model_coefs)
-        lower_idx <- which(coarse_results > null_model_coefs)
-        
-        # grid is too narrow.
-        if (length(upper_idx) == 0 || length(lower_idx) == 0) {
-            cli::cli_warn("Could not bracket lambda_max with the initial grid. Using largest value.")
-            
-            p(steps = fine_grid_size)
-            
-            return(max(search_grid))
-        }
-        
-        #  bounds for the finer search.
-        upper_bound <- min(search_grid[upper_idx])
-        lower_bound <- max(search_grid[lower_idx])
-        
-        # Finer Search
-        fine_grid <- round(seq(lower_bound, upper_bound, length.out = fine_grid_size), 8)
-        cli::cli_alert_info("Searching for lambda_max (fine grid)...")
-        fine_results <- furrr::future_map_dbl(
-            .x = fine_grid,
-            .f = fit_and_get_count,
-            .options = furrr::furrr_options(
-                globals = TRUE,
-                seed = TRUE
-            )
-        )
-        
-        
-        # This is our best estimate for lambda_max.
-        first_null_model_idx <- which(fine_results <= null_model_coefs)[1]
-        lambda_max <- fine_grid[first_null_model_idx]
-        
-        # Fallback if the fine search fails for some reason.
-        if (is.na(lambda_max)) {
-            cli::cli_warn("Fine grid search failed to find a suitable lambda_max. Returning upper bound.")
-            return(upper_bound)
-        }
-    }) 
+    n <- nrow(X_full) # Number of observations
+    K <- nlevels(Y_factor) # Number of classes
     
-    lambda_max<- lambda_max*1.2
+    # Calculate null probabilities (P_null) based only on the offset
     
-    cli::cli_alert_success("Found lambda_max: {round(lambda_max, 4)}")
+    # Create a matrix for null log-odds
+    # First class is the reference (log-odds = 0)
+    eta_null <- matrix(0, nrow = n, ncol = K)
+    
+    # Apply the offset to all other classes
+    eta_null[, -1] <- offsets
+    
+    # Convert log-odds to probabilities (softmax)
+    exp_eta_null <- exp(eta_null)
+    row_sums <- rowSums(exp_eta_null)
+    P_null <- exp_eta_null / row_sums 
+    
+    # Calculate null model residuals
+    
+    # Get true outcomes (one-hot encoded matrix)
+    Y_matrix <- model.matrix(~ 0 + Y_factor)
+    
+    # Residuals = True outcomes - Null probabilities
+    Residuals <- Y_matrix - P_null
+    
+    # Calculate gradient for penalized variables
+    
+    total_predictors <- ncol(X_full)
+    
+    # Handle case with no penalized variables
+    if (n_unpenalized >= total_predictors) {
+        cli::cli_warn("All variables are unpenalized. No lambda_max to calculate. Returning 0.")
+        return(0)
+    }
+    
+    # Get the predictors that will be penalized
+    penalized_idx <- (n_unpenalized + 1):total_predictors
+    X_penalized <- X_full[, penalized_idx, drop = FALSE]
+    
+    # Gradient = X_penalized^T * Residuals
+    Gradient_matrix <- t(X_penalized) %*% Residuals
+    
+    # Find the largest absolute value in the gradient matrix
+    max_abs_grad <- max(abs(Gradient_matrix))
+    
+    # Calculate final lambda_max using the standard formula
+    lambda_max <- max_abs_grad / (alpha * n)
+    
+    cli::cli_alert_success("lambda_max: {round(lambda_max, 4)}")
     
     return(lambda_max)
 }
+# find_lambda_max <- function(cb_data,
+#                             n_unpenalized,
+#                             alpha,
+#                             regularization,
+#                             ...) {
+#     
+#     n_event_types <- length(unique(cb_data$event))
+#     null_model_coefs <- n_unpenalized * (n_event_types - 1)
+#     search_grid <- round(exp(seq(log(7), log(0.005), length.out = 5)), 8)
+#     
+#     progressr::handlers("cli")
+#     
+#     progressr::with_progress({
+#         fine_grid_size <- 5
+#         
+#         p <- progressr::progressor(steps = length(search_grid) + fine_grid_size)
+#         
+#         # Helper function to fit the model and advance the progress bar
+#         fit_and_get_count <- function(lambda_val) {
+#             
+#             fit_model <- fit_cb_model(
+#                 cb_data,
+#                 lambda = lambda_val,
+#                 regularization = regularization,
+#                 alpha = alpha,
+#                 n_unpenalized = n_unpenalized,
+#                 ...
+#             )
+#             result <- sum(!same(fit_model$coefficients, 0))
+#             
+#             p()
+#             
+#             return(result)
+#         }
+#         
+#         # Coarse Search
+#         cli::cli_alert_info("Searching for lambda_max (coarse grid)...")
+#         coarse_results <- furrr::future_map_dbl(
+#             .x = search_grid,
+#             .f = fit_and_get_count,
+#             .options = furrr::furrr_options(
+#                 globals = TRUE,
+#                 seed = TRUE
+#             )
+#         )
+#         
+#         upper_idx <- which(coarse_results <= null_model_coefs)
+#         lower_idx <- which(coarse_results > null_model_coefs)
+#         
+#         # grid is too narrow.
+#         if (length(upper_idx) == 0 || length(lower_idx) == 0) {
+#             cli::cli_warn("Could not bracket lambda_max with the initial grid. Using largest value.")
+#             
+#             p(steps = fine_grid_size)
+#             
+#             return(max(search_grid))
+#         }
+#         
+#         #  bounds for the finer search.
+#         upper_bound <- min(search_grid[upper_idx])
+#         lower_bound <- max(search_grid[lower_idx])
+#         
+#         # Finer Search
+#         fine_grid <- round(seq(lower_bound, upper_bound, length.out = fine_grid_size), 8)
+#         cli::cli_alert_info("Searching for lambda_max (fine grid)...")
+#         fine_results <- furrr::future_map_dbl(
+#             .x = fine_grid,
+#             .f = fit_and_get_count,
+#             .options = furrr::furrr_options(
+#                 globals = TRUE,
+#                 seed = TRUE
+#             )
+#         )
+#         
+#         
+#         # This is our best estimate for lambda_max.
+#         first_null_model_idx <- which(fine_results <= null_model_coefs)[1]
+#         lambda_max <- fine_grid[first_null_model_idx]
+#         
+#         # Fallback if the fine search fails for some reason.
+#         if (is.na(lambda_max)) {
+#             cli::cli_warn("Fine grid search failed to find a suitable lambda_max. Returning upper bound.")
+#             return(upper_bound)
+#         }
+#     }) 
+#     
+#     lambda_max<- lambda_max*1.2
+#     
+#     cli::cli_alert_success("Found lambda_max: {round(lambda_max, 4)}")
+#     
+#     return(lambda_max)
+# }
 
 #' Generate a Lambda Grid for Regularization
 #' @return A numeric vector of lambda values.
@@ -167,7 +231,7 @@ create_lambda_grid <- function(cb_data,
         if(is.null(lambda_max)){
             lambda_max <- find_lambda_max(
                 cb_data,
-                regularization = regularization,
+                # regularization = regularization,
                 alpha = alpha,
                 n_unpenalized = n_unpenalized,
                 ...)

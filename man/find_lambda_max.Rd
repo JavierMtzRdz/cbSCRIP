@@ -4,7 +4,7 @@
 \alias{find_lambda_max}
 \title{Find the Maximum Lambda (lambda_max)}
 \usage{
-find_lambda_max(cb_data, n_unpenalized, alpha, regularization, ...)
+find_lambda_max(cb_data, n_unpenalized, alpha)
 }
 \arguments{
 \item{...}{Other arguments passed to find_lambda_max.}
