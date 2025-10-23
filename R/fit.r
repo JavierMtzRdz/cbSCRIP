@@ -297,10 +297,18 @@ fit_cb_model <- function(cb_data,
         }
         fit <- c(fit, scaler = list(scaler))
     }
+    
+    call <-  match.call()
+    call$lambda <- lambda
+    call$alpha <- alpha
+    call$n_unpenalized <- n_unpenalized
+    
     fit <- c(fit, 
              scaler = list(scaler),
              adjusted = F,
-             call = match.call())
+             call = call,
+             lambda = lambda,
+             alpha = alpha)
     class(fit) <- "cbSCRIP"
     return(fit)
 }
@@ -326,19 +334,16 @@ print.cbSCRIP <- function(x, ..., print_limit = 10) {
     cat("\n")
     
     # --- Model & Penalty Details ---
-    # Use rlang::`%||%` to handle cases where lambda might be named differently
-    lambda_expr <- x$call$lambda
-    alpha_expr <- x$call$alpha
+    lambda_call <- x$lambda
+    alpha_call <- x$alpha
     
-    if (!is.null(lambda_expr)) {
+    if (!is.null(lambda_call)) {
         # Evaluate the expression to get its numeric value
-        lambda_val <- eval(lambda_expr, envir = parent.frame())
-        cli::cat_bullet("Lambda: ", sprintf("%.4f", lambda_val), bullet = "info")
+        cli::cat_bullet("Lambda: ", sprintf("%.4f", lambda_call), bullet = "info")
     }
-    if (!is.null(alpha_expr)) {
+    if (!is.null(alpha_call)) {
         # Also evaluate alpha for robustness
-        alpha_val <- eval(alpha_expr, envir = parent.frame())
-        cli::cat_bullet("Alpha (for elastic-net): ", alpha_val, bullet = "info")
+        cli::cat_bullet("Alpha (for elastic-net): ", alpha_call, bullet = "info")
     }
     
     # --- Selected Coefficients Details ---
