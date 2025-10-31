@@ -4,10 +4,14 @@
 \alias{find_lambda_max}
 \title{Find the Maximum Lambda (lambda_max)}
 \usage{
-find_lambda_max(cb_data, n_unpenalized, alpha, regularization, ...)
+find_lambda_max(cb_data, n_unpenalized, alpha)
 }
 \arguments{
-\item{...}{Other arguments passed to find_lambda_max.}
+\item{cb_data}{Case-base data list.}
+
+\item{n_unpenalized}{Number of unpenalized predictors.}
+
+\item{alpha}{The alpha value for elastic net.}
 }
 \value{
 The estimated lambda_max value.
@@ -15,3 +19,4 @@ The estimated lambda_max value.
 \description{
 Find the Maximum Lambda (lambda_max)
 }
+\keyword{internal}

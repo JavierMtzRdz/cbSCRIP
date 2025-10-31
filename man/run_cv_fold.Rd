@@ -12,13 +12,34 @@ run_cv_fold(
   regularization,
   alpha,
   n_unpenalized = 2,
-  warm_start = T,
+  warm_start = TRUE,
   update_f = NULL,
   ...
 )
 }
+\arguments{
+\item{fold_indices}{Indices for the validation fold.}
+
+\item{cb_data}{Case-base data.}
+
+\item{lambdagrid}{Vector of lambda values.}
+
+\item{all_event_levels}{Vector of event levels.}
+
+\item{regularization}{Type of regularization.}
+
+\item{alpha}{The alpha value.}
+
+\item{n_unpenalized}{Number of unpenalized predictors.}
+
+\item{warm_start}{Logical, whether to use warm starts.}
+
+\item{update_f}{A progress update function.}
+
+\item{...}{Additional arguments for \code{fit_cb_model}.}
+}
 \value{
-A vector of multinomial deviances for the fold.
+A list of multinomial deviances and non-zero counts for the fold.
 }
 \description{
 Run a Single Fold of Cross-Validation

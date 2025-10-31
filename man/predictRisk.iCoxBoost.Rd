@@ -4,7 +4,7 @@
 \alias{predictRisk.iCoxBoost}
 \title{Predict Cumulative Incidence for an iCoxBoost Object}
 \usage{
-predictRisk.iCoxBoost(object, newdata, times, cause, ...)
+\method{predictRisk}{iCoxBoost}(object, newdata, times, cause, ...)
 }
 \arguments{
 \item{object}{A model object of class \code{iCoxBoost}.}

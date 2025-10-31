@@ -4,7 +4,7 @@
 \alias{predictRisk.penalizedCompRisk}
 \title{Predict Absolute Risk for a Penalized CompRisk Object}
 \usage{
-predictRisk.penalizedCompRisk(object, newdata, times, cause, ...)
+\method{predictRisk}{penalizedCompRisk}(object, newdata, times, cause, ...)
 }
 \arguments{
 \item{object}{A model object of class \code{penalizedCompRisk}.}

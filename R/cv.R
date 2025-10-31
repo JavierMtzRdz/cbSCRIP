@@ -1,12 +1,25 @@
+#' @importFrom VGAM multinomial vglm vglm.control
+#' @importFrom stats model.matrix sd as.formula
+#' @importFrom cli cli_warn cli_alert_success cli_abort cli_alert_info cli_progress_bar cli_progress_update
+#' @importFrom future plan multisession sequential
+#' @importFrom caret createFolds
+#' @importFrom progressr handlers with_progress progressor
+#' @importFrom furrr future_map furrr_options
+#' @importFrom purrr map
+#' @importFrom rlang arg_match
+#' @importFrom methods new
+NULL
+
 #' Calculate Multinomial Deviance for a Fitted Case-Base Model
 #' @param cb_data A case-base dataset from `create_cb_data`.
 #' @param fit_object The output from `fit_cb_model`.
 #' @param all_event_levels A vector of all possible event levels to ensure
 #'   dimensional consistency.
 #' @return The multinomial deviance value.
+#' @keywords internal
 calc_multinom_deviance <- function(cb_data, fit_object, all_event_levels) {
     # Reconstruct design matrix
-    X <- as.matrix(cbind(cb_data$covariates, time = log(cb_data$time), 1))
+    X <- as.matrix(cbind(cb_data$covariates, "log(time)" = log(cb_data$time), "(Intercept)" = 1))
     
     # Get the offset term
     offset <- cb_data$offset
@@ -19,7 +32,7 @@ calc_multinom_deviance <- function(cb_data, fit_object, all_event_levels) {
     scores_baseline <- rep(0, nrow(X))
     all_scores <- cbind(scores_baseline, scores_events)
     
-    # Log-Sum-Exp Trick 
+    # Log-Sum-Exp Trick
     max_scores <- apply(all_scores, 1, max, na.rm = TRUE)
     
     # Subtract the max score before exponentiating to prevent overflow
@@ -36,7 +49,7 @@ calc_multinom_deviance <- function(cb_data, fit_object, all_event_levels) {
     
     # Create the observed outcome matrix (Y_mat)
     Y_fct <- factor(cb_data$event, levels = all_event_levels)
-    Y_mat <- model.matrix(~ Y_fct - 1)
+    Y_mat <- stats::model.matrix(~ Y_fct - 1)
     
     # Calculate deviance with stable probabilities
     VGAM::multinomial()@deviance(mu = pred_mat, y = Y_mat, w = rep(1, nrow(X)))
@@ -45,102 +58,119 @@ calc_multinom_deviance <- function(cb_data, fit_object, all_event_levels) {
 
 
 #' Find the Maximum Lambda (lambda_max)
-#' @param ... Other arguments passed to find_lambda_max.
+#' @param cb_data Case-base data list.
+#' @param n_unpenalized Number of unpenalized predictors.
+#' @param alpha The alpha value for elastic net.
 #' @return The estimated lambda_max value.
-find_lambda_max <- function(cb_data,
-                            n_unpenalized,
-                            alpha,
-                            regularization,
-                            ...) {
+#' @keywords internal
+find_lambda_max <- function(cb_data, n_unpenalized, alpha) {
     
-    n_event_types <- length(unique(cb_data$event))
-    null_model_coefs <- n_unpenalized * (n_event_types - 1)
-    search_grid <- round(exp(seq(log(7), log(0.005), length.out = 5)), 8)
+    # Handle alpha = 0 (Ridge)
+    if (alpha <= 1e-10) { # Use tolerance for floating point
+        cli::cli_warn("lambda_max is undefined or infinite for alpha = 0 (Ridge).")
+    }
     
-    progressr::handlers("cli")
+    # Data Components
+    Y_factor <- as.factor(cb_data$event)
+    offsets <- cb_data$offset
+    penalized_covs_raw <- as.matrix(cb_data$covariates)
     
-    progressr::with_progress({
-        fine_grid_size <- 5
-        
-        p <- progressr::progressor(steps = length(search_grid) + fine_grid_size)
-        
-        # Helper function to fit the model and advance the progress bar
-        fit_and_get_count <- function(lambda_val) {
-            
-            fit_model <- fit_cb_model(
-                cb_data,
-                lambda = lambda_val,
-                regularization = regularization,
-                alpha = alpha,
-                n_unpenalized = n_unpenalized,
-                ...
-            )
-            result <- sum(!same(fit_model$coefficients, 0))
-            
-            p()
-            
-            return(result)
+    n <- nrow(penalized_covs_raw) # Number of observations
+    K_total <- nlevels(Y_factor) # Total number of classes (e.g., 3 for 0, 1, 2)
+    K_params <- K_total - 1     # Number of parameter columns (non-baseline)
+    
+    # Calculate Null Probabilities
+    
+    eta_null_params <- matrix(0, nrow = n, ncol = K_params)
+    # Add offset
+    eta_null_params[] <- offsets
+    
+    # Softmax calculation
+    exp_eta_null <- exp(eta_null_params)
+    # Add baseline class contribution (exp(0) = 1)
+    denom <- 1 + rowSums(exp_eta_null)
+    
+    P_null <- matrix(0, nrow = n, ncol = K_total)
+    P_null[, 1] <- 1 / denom # Baseline probability (assuming class 0 or first factor level)
+    if (K_params > 0) {
+        for(k in 1:K_params) {
+            P_null[, k + 1] <- exp_eta_null[, k] / denom
         }
-        
-        # Coarse Search
-        cli::cli_alert_info("Searching for lambda_max (coarse grid)...")
-        coarse_results <- furrr::future_map_dbl(
-            .x = search_grid,
-            .f = fit_and_get_count,
-            .options = furrr::furrr_options(
-                globals = TRUE,
-                seed = TRUE
-            )
-        )
-        
-        upper_idx <- which(coarse_results <= null_model_coefs)
-        lower_idx <- which(coarse_results > null_model_coefs)
-        
-        # grid is too narrow.
-        if (length(upper_idx) == 0 || length(lower_idx) == 0) {
-            cli::cli_warn("Could not bracket lambda_max with the initial grid. Using largest value.")
-            
-            p(steps = fine_grid_size)
-            
-            return(max(search_grid))
-        }
-        
-        #  bounds for the finer search.
-        upper_bound <- min(search_grid[upper_idx])
-        lower_bound <- max(search_grid[lower_idx])
-        
-        # Finer Search
-        fine_grid <- round(seq(lower_bound, upper_bound, length.out = fine_grid_size), 8)
-        cli::cli_alert_info("Searching for lambda_max (fine grid)...")
-        fine_results <- furrr::future_map_dbl(
-            .x = fine_grid,
-            .f = fit_and_get_count,
-            .options = furrr::furrr_options(
-                globals = TRUE,
-                seed = TRUE
-            )
-        )
-        
-        
-        # This is our best estimate for lambda_max.
-        first_null_model_idx <- which(fine_results <= null_model_coefs)[1]
-        lambda_max <- fine_grid[first_null_model_idx]
-        
-        # Fallback if the fine search fails for some reason.
-        if (is.na(lambda_max)) {
-            cli::cli_warn("Fine grid search failed to find a suitable lambda_max. Returning upper bound.")
-            return(upper_bound)
-        }
-    }) 
+    }
     
-    lambda_max<- lambda_max*1.2
+    # Calculate Null Model Residuals
+    Y_matrix <- stats::model.matrix(~ 0 + Y_factor) # n x K_total one-hot matrix
+    Residuals <- Y_matrix - P_null          # n x K_total residual matrix
     
-    cli::cli_alert_success("Found lambda_max: {round(lambda_max, 4)}")
+    # Build the Standardized Design Matrix
+    
+    # Standardize the original covariates
+    center <- colMeans(penalized_covs_raw, na.rm = TRUE)
+    scale <- apply(penalized_covs_raw, 2, stats::sd, na.rm = TRUE)
+    
+    # Check for zero variance and replace scale with 1 to avoid NaN/Inf
+    zero_var_idx <- which(scale < 1e-10)
+    if (length(zero_var_idx) > 0) {
+        cli::cli_warn("Some covariates have near-zero variance and were not scaled.")
+        scale[zero_var_idx] <- 1
+    }
+    
+    penalized_covs_scaled <- scale(penalized_covs_raw, center = center, scale = scale)
+    
+    # Build the full design matrix using model.matrix, exactly like the wrapper
+    design_data <- data.frame(penalized_covs_scaled,
+                              time = log(cb_data$time))
+    X_intermediate <- stats::model.matrix(~., data = design_data)
+    
+    # Re-order to match wrapper: Intercept column goes last
+    X_full_design <- cbind(X_intermediate[, -1, drop = FALSE], X_intermediate[, 1, drop = FALSE])
+    colnames(X_full_design)[ncol(X_full_design)] <- "(Intercept)" # Rename intercept column
+    
+    
+    # Calculate Gradient for PENALIZED Variables
+    
+    total_predictors <- ncol(X_full_design)
+    n_penalized <- total_predictors - n_unpenalized
+    
+    if (n_penalized <= 0) {
+        cli::cli_warn("No variables are penalized based on n_unpenalized = {n_unpenalized}. lambda_max is 0.")
+        return(0)
+    }
+    
+    # The penalized variables are the FIRST n_penalized columns of X_full_design
+    penalized_idx <- 1:n_penalized
+    X_penalized <- X_full_design[, penalized_idx, drop = FALSE]
+    
+    # Gradient = X_penalized^T * Residuals
+    # We only need the gradient w.r.t the K_params (non-baseline) parameter sets
+    # Residuals[, -1] selects columns for classes 1, 2, ... K_params
+    Gradient_matrix <- t(X_penalized) %*% Residuals[, -1, drop = FALSE]
+    
+    # Find Max Absolute Gradient Component and Scale
+    
+    # Find the largest absolute value across all elements of the gradient matrix
+    max_abs_grad <- max(abs(Gradient_matrix))
+    
+    # Calculate final lambda_max using the standard formula
+    # Note: glmnet uses n=nrow(X), which matches 'n' here.
+    lambda_max <- max_abs_grad / (alpha * n)
+    
+    cli::cli_alert_success("Calculated lambda_max: {round(lambda_max, 4)}")
     
     return(lambda_max)
 }
 
+
 #' Generate a Lambda Grid for Regularization
+#' @param cb_data Case-base data.
+#' @param lambda A user-supplied lambda sequence.
+#' @param nlambda Number of lambda values.
+#' @param lambda_max The maximum lambda value.
+#' @param lambda.min.ratio Ratio for smallest lambda.
+#' @param regularization Type of regularization.
+#' @param alpha The alpha value.
+#' @param n_unpenalized Number of unpenalized predictors.
+#' @param ... Additional arguments.
 #' @return A numeric vector of lambda values.
 #' @export
 create_lambda_grid <- function(cb_data,
@@ -161,29 +191,34 @@ create_lambda_grid <- function(cb_data,
     
     if(is.null(lambda)){
         
-        penalty_params_notif(regularization = regularization,
-                             alpha = alpha)
+        # penalty_params_notif(regularization = regularization,
+        #                      alpha = alpha)
+        
+        if (is.null(alpha)) {
+            alpha <- 0.5
+        }
         
         if(is.null(lambda_max)){
             lambda_max <- find_lambda_max(
                 cb_data,
-                regularization = regularization,
+                # regularization = regularization,
                 alpha = alpha,
-                n_unpenalized = n_unpenalized,
-                ...)
-            }
-            
-            grid <- rev(exp(seq(log(lambda_max * lambda.min.ratio), 
-                                log(lambda_max), length.out = nlambda)))
-            
-        } else {
-            
-            grid <- sort(unique(lambda[lambda >= 0]), decreasing = TRUE) 
-            
-            if(length(grid) == 0) cli::cli_abort("Provided lambda values invalid.")
-            
-            
+                n_unpenalized = n_unpenalized
+                # ...
+            )
         }
+        
+        grid <- rev(exp(seq(log(lambda_max * lambda.min.ratio),
+                            log(lambda_max), length.out = nlambda)))
+        
+    } else {
+        
+        grid <- sort(unique(lambda[lambda >= 0]), decreasing = TRUE)
+        
+        if(length(grid) == 0) cli::cli_abort("Provided lambda values invalid.")
+        
+        
+    }
     
     if(length(grid) > 1) cli::cli_alert_info("Using {length(grid)} lambdas. Range: {signif(min(grid), 3)} to {signif(max(grid), 3)}")
     
@@ -191,15 +226,25 @@ create_lambda_grid <- function(cb_data,
 }
 
 #' Run a Single Fold of Cross-Validation
-#' @return A vector of multinomial deviances for the fold.
+#' @param fold_indices Indices for the validation fold.
+#' @param cb_data Case-base data.
+#' @param lambdagrid Vector of lambda values.
+#' @param all_event_levels Vector of event levels.
+#' @param regularization Type of regularization.
+#' @param alpha The alpha value.
+#' @param n_unpenalized Number of unpenalized predictors.
+#' @param warm_start Logical, whether to use warm starts.
+#' @param update_f A progress update function.
+#' @param ... Additional arguments for `fit_cb_model`.
+#' @return A list of multinomial deviances and non-zero counts for the fold.
 #' @export
-run_cv_fold <- function(fold_indices, cb_data, 
-                        lambdagrid, 
+run_cv_fold <- function(fold_indices, cb_data,
+                        lambdagrid,
                         all_event_levels,
                         regularization,
                         alpha,
                         n_unpenalized = 2,
-                        warm_start = T,
+                        warm_start = TRUE,
                         update_f = NULL,
                         ...) {
     # Split data into training and validation folds
@@ -210,19 +255,22 @@ run_cv_fold <- function(fold_indices, cb_data,
     deviances <- numeric(length(lambdagrid))
     non_zero <- numeric(length(lambdagrid))
     
-    param_start <- NULL 
+    param_start <- NULL
     
     for (i in seq_along(lambdagrid)) {
-        model_info <- fit_cb_model(
-            train_cv_data,
-            lambda = lambdagrid[i],
-            all_event_levels = all_event_levels,
-            regularization = regularization,
-            alpha = alpha,
-            param_start = param_start, # Pass warm start
-            n_unpenalized = n_unpenalized,
-            ...
-        )
+        
+        opt_args <- list(train_cv_data,
+                         lambda = lambdagrid[i],
+                         all_event_levels = all_event_levels,
+                         regularization = regularization,
+                         alpha = alpha,
+                         param_start = param_start, # Pass warm start
+                         n_unpenalized = n_unpenalized,
+                         ...)
+        
+        # if(is.null(opt_args$lr_adj)) opt_args$lr_adj <- 100
+        
+        model_info <- do.call(fit_cb_model, opt_args)
         
         # Calculate deviance on the original, unscaled test fold
         deviances[i] <- calc_multinom_deviance(
@@ -231,9 +279,9 @@ run_cv_fold <- function(fold_indices, cb_data,
             all_event_levels = all_event_levels
         )
         
-        non_zero[i] <- sum(!same(model_info$coefficients, 0))
+        non_zero[i] <- sum(!same(rowSums(abs(model_info$coefficients)), 0))
         
-        update_f()
+        if (!is.null(update_f)) update_f()
         
         # Update the warm start for the next iteration
         if(warm_start) param_start <- model_info$coefficients
@@ -245,19 +293,35 @@ run_cv_fold <- function(fold_indices, cb_data,
 
 
 #' Cross-Validation for Penalized Multinomial Case-Base Models
+#' @param formula A formula object.
+#' @param data The input data.frame.
+#' @param regularization Type of regularization.
+#' @param cb_data A case-base data list.
+#' @param alpha The alpha value.
+#' @param lambda A vector of lambda values.
+#' @param nfold Number of CV folds.
+#' @param nlambda Number of lambda values.
+#' @param ncores Number of cores for parallel execution.
+#' @param n_unpenalized Number of unpenalized predictors.
+#' @param ratio Sampling ratio.
+#' @param ratio_event Event ratio.
+#' @param lambda_max Max lambda.
+#' @param lambda.min.ratio Min lambda ratio.
+#' @param warm_start Logical, whether to use warm starts.
+#' @param ... Additional arguments.
 #' @return An object of class `cb.cv` containing the results.
 #' @export
 cv_cbSCRIP <- function(formula, data, regularization = 'elastic-net',
                        cb_data = NULL,
                        alpha = NULL,
                        lambda = NULL,
-                       nfold = 5, nlambda = 50, 
+                       nfold = 5, nlambda = 50,
                        ncores = parallel::detectCores() / 2,
                        n_unpenalized = 2,
-                       ratio = 25, ratio_event = 1,
+                       ratio = 50, ratio_event = "all",
                        lambda_max = NULL,
                        lambda.min.ratio = NULL,
-                       warm_start = T,
+                       warm_start = TRUE,
                        ...) {
     
     if(is.null(cb_data)){
@@ -271,9 +335,9 @@ cv_cbSCRIP <- function(formula, data, regularization = 'elastic-net',
     
     
     if (ncores > 1) {
-        future::plan(multisession, workers = ncores)
+        future::plan(future::multisession, workers = ncores)
     } else {
-        future::plan(sequential)
+        future::plan(future::sequential)
     }
     
     on.exit(future::plan(future::sequential), add = TRUE)
@@ -297,7 +361,7 @@ cv_cbSCRIP <- function(formula, data, regularization = 'elastic-net',
         p <- progressr::progressor(steps = nfold * nlambda)
         
         fold_list <- furrr::future_map(
-            .x = folds, 
+            .x = folds,
             .f = function(fold) {
                 res <- run_cv_fold(
                     fold_indices = fold,
@@ -444,8 +508,7 @@ print.cbSCRIP.path <- function(x, ...) {
 #' selected variables and refits a standard (unpenalized) `casebase` model
 #' using only that subset.
 #'
-#' @param object A fitted object of class
-#' @param coeffs A character string specifying the type of coefficients to return.
+#' @param object A fitted object of class `cbSCRIP.path`.
 #' @param ... Additional arguments (currently unused).
 #'
 #' @return An object of class `cbSCRIP.path`, where the `coefficients` list
@@ -453,7 +516,7 @@ print.cbSCRIP.path <- function(x, ...) {
 #'   also added, containing the full model objects from each refit.
 #'
 #' @importFrom stats as.formula coef
-#' @importFrom purrr map map2
+#' @importFrom purrr map
 #' @importFrom cli cli_alert_info cli_progress_bar cli_progress_update
 #' @export
 refit_cbSCRIP <- function(object, ...) {
@@ -470,65 +533,64 @@ refit_cbSCRIP <- function(object, ...) {
     cli::cli_progress_bar("Refitting Path", total = length(object$lambdagrid))
     
     # Iterate over each set of coefficients in the path to refit the models
-    # progressr::with_progress({
-    # Define the progressor
-    p <- progressr::progressor(steps = length(object$lambdagrid))
-    refitted_models <- purrr::map(object$coefficients, function(coef_matrix) {
-        
-        # Identify variables with non-zero coefficients for any cause
-        selected_vars_logical <- (rowSums(abs(coef_matrix)) > 1e-10) & (rownames(coef_matrix) %in% colnames(cb_data$covariates))
-        selected_vars_names <- rownames(coef_matrix)[selected_vars_logical]
-        
-        # Handle the case where no variables are selected (intercept-only model)
-        if (length(selected_vars_names) == 0) {
-            refit_formula_str <- "status ~ 1 + log(time)"
-            # Data still needs time and status columns for fitSmoothHazard
-            refit_data <- data.frame(time = cb_data$time, status = cb_data$event)
-        } else {
-            # Prepare data with only the selected covariates
-            refit_data <- as.data.frame(cb_data$covariates[, selected_vars_names, drop = FALSE])
-            refit_data[["time"]] <- cb_data$time
-            refit_data[["status"]] <- cb_data$event
-            refit_data[["offset"]] <- cb_data$offset
+    progressr::with_progress({
+        # Define the progressor
+        p <- progressr::progressor(steps = length(object$lambdagrid))
+        refitted_models <- purrr::map(object$coefficients, function(coef_matrix) {
             
-            class(refit_data) <- c("cbData", class(refit_data))
+            # Identify variables with non-zero coefficients for any cause
+            selected_vars_logical <- (rowSums(abs(coef_matrix)) > 1e-10) & (rownames(coef_matrix) %in% colnames(cb_data$covariates))
+            selected_vars_names <- rownames(coef_matrix)[selected_vars_logical]
             
-            # Create the new formula for refitting
-            refit_formula_str <- paste("status ~",
-                                       paste(make.names(selected_vars_names), collapse = " + "),
-                                       "+ log(time) + offset(offset)"
-            )
-        }
-        
-        cb_data$covariates <- cb_data$covariates[, selected_vars_names, drop = FALSE]
-        
-        # Refit the model using casebase::fitSmoothHazard
-        refitted_model <- tryCatch({
+            # Handle the case where no variables are selected (intercept-only model)
+            if (length(selected_vars_names) == 0) {
+                refit_formula_str <- "status ~ 1 + log(time)"
+                # Data still needs time and status columns for fitSmoothHazard
+                refit_data <- data.frame(time = cb_data$time, status = cb_data$event)
+            } else {
+                # Prepare data with only the selected covariates
+                refit_data <- as.data.frame(cb_data$covariates[, selected_vars_names, drop = FALSE])
+                refit_data[["time"]] <- cb_data$time
+                refit_data[["status"]] <- cb_data$event
+                refit_data[["offset"]] <- cb_data$offset
+                
+                class(refit_data) <- c("cbData", class(refit_data))
+                
+                # Create the new formula for refitting
+                refit_formula_str <- paste("status ~",
+                                           paste(make.names(selected_vars_names), collapse = " + "),
+                                           "+ log(time) + offset(offset)"
+                )
+            }
             
-            model <- VGAM::vglm(as.formula(refit_formula_str),
-                                data = refit_data,
-                                family = VGAM::multinomial(refLevel = 1),
-                                control = VGAM::vglm.control(crit = "coef", 
-                                                             step = 0.5,
-                                                             epsil = 1e-8,
-                                                             maxit = 40))
+            # This line seems problematic as it modifies cb_data in a loop
+            # cb_data$covariates <- cb_data$covariates[, selected_vars_names, drop = FALSE]
             
-            typeEvents <- sort(unique(refit_data[["status"]]))
+            # Refit the model using VGAM::vglm
+            refitted_model <- tryCatch({
+                
+                model <- VGAM::vglm(stats::as.formula(refit_formula_str),
+                                    data = refit_data,
+                                    family = VGAM::multinomial(refLevel = 1),
+                                    control = VGAM::vglm.control(step = 0.5,
+                                                                 maxit = 40))
+                
+                typeEvents <- sort(unique(refit_data[["status"]]))
+                
+                methods::new("CompRisk", model,
+                             originalData = data.frame(),
+                             typeEvents = typeEvents,
+                             timeVar = "time",
+                             eventVar = "status"
+                )
+                
+            }, error = function(e) {
+                warning(paste("Refitting failed for one lambda value:", e$message))
+                return(NULL)
+            })
             
-            new("CompRisk", model,
-                originalData = data.frame(),
-                typeEvents = typeEvents,
-                timeVar = "time",
-                eventVar = "status"
-            )
-            
-        }, error = function(e) {
-            warning(paste("Refitting failed for one lambda value:", e$message))
-            return(NULL)
+            return(refitted_model)
         })
-        
-        return(refitted_model)
-        # })
     })
     
     # Reconstruct the coefficient list in the original format
@@ -544,7 +606,7 @@ refit_cbSCRIP <- function(object, ...) {
                                 dimnames = list(rownames(orig_coef_template),
                                                 colnames(orig_coef_template)))
         if (!is.null(model)) {
-            refit_coefs <- coef(model) # This is the named vector
+            refit_coefs <- stats::coef(model) # This is the named vector
             
             # Iterate through the named vector to parse names and place coefficients
             for (i in seq_along(refit_coefs)) {
@@ -580,23 +642,37 @@ refit_cbSCRIP <- function(object, ...) {
 #' returning the path of coefficients. Includes a progress bar.
 #'
 #' @inheritParams cv_cbSCRIP
-#' @return An object of class `cb.path` containing coefficient paths.
+#' @param formula A formula object.
+#' @param data The input data.frame.
+#' @param cb_data A case-base data list.
+#' @param lambda A vector of lambda values.
+#' @param alpha The alpha value.
+#' @param nlambda Number of lambda values.
+#' @param n_unpenalized Number of unpenalized predictors.
+#' @param ratio Sampling ratio.
+#' @param ratio_event Event ratio.
+#' @param lambda_max Max lambda.
+#' @param lambda.min.ratio Min lambda ratio.
+#' @param warm_start Logical, whether to use warm starts.
+#' @param coeffs Character, whether to return "adjusted" (refitted) or "original" coefficients.
+#' @param ... Additional arguments.
+#' @return An object of class `cbSCRIP.path` or `cbSCRIP`.
 #' @export
-cbSCRIP <- function(formula, data, regularization = 'elastic-net', 
+cbSCRIP <- function(formula, data, regularization = 'elastic-net',
                     cb_data = NULL,
-                    alpha = NULL,
                     lambda = NULL,
-                    nlambda = 100, n_unpenalized = 2,
-                    ratio = 25, ratio_event = 1,
+                    alpha = NULL,
+                    nlambda = 50, n_unpenalized = 2,
+                    ratio = 50, ratio_event = "all",
                     lambda_max = NULL,
                     lambda.min.ratio = NULL,
-                    warm_start = T,
+                    warm_start = TRUE,
                     coeffs = c("adjusted", "original"),
                     ...) {
     
     coeffs <- rlang::arg_match(coeffs)
     
-    # Create the full case-base dataset 
+    # Create the full case-base dataset
     
     if(is.null(cb_data)){
         
@@ -648,10 +724,10 @@ cbSCRIP <- function(formula, data, regularization = 'elastic-net',
             
             cli::cli_progress_update()
         }
-        # Extract the re-scaled coefficients 
+        # Extract the re-scaled coefficients
         coefficients <- purrr::map(path_fits, ~.x$coefficients)
         
-        non_zero <- purrr::map(path_fits, ~sum(!same(.x$coefficients, 0)))
+        non_zero <- purrr::map(path_fits, ~sum(!same(rowSums(abs(.x$coefficients)), 0)))
         
         result <- list(
             coefficients = coefficients,
@@ -693,7 +769,7 @@ cbSCRIP <- function(formula, data, regularization = 'elastic-net',
             
             result$adjusted <- TRUE
             
-        
+            
         }
         
         

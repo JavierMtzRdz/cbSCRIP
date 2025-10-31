@@ -20,7 +20,8 @@ prepare_penalty_params <- function(regularization, lambda, alpha) {
             }
             
             list(lambda1 = lambda * alpha, 
-                 lambda2 = 0.5 * lambda * (1 - alpha))
+                 lambda2 = 0.5 * lambda * (1 - alpha),
+                 alpha = alpha)
         },
         
         
@@ -198,56 +199,74 @@ create_cb_data <- function(formula, data, ratio = 20, ratio_event = "all") {
 fit_cb_model <- function(cb_data,
                          regularization = c('elastic-net', 'SCAD'), 
                          lambda, alpha = NULL,
-                         fit_fun = MNlogisticSAGA,
+                         fit_fun = MNlogisticSAGA_Native,
                          param_start = NULL,
                          n_unpenalized = 2,
                          standardize = TRUE, 
                          all_event_levels = NULL,
                          ...) {
     
-    library(Matrix)
-    library(cbSCRIP)
+    # Load libraries efficiently
+    if (!requireNamespace("Matrix", quietly = TRUE)) cli::cli_abort("Matrix package required")
     
     regularization <- rlang::arg_match(regularization)
     penalty_params <- prepare_penalty_params(regularization, lambda, alpha)
     
     if (is.null(all_event_levels)) all_event_levels <- sort(unique(cb_data$event))
-    Y_factor <- factor(cb_data$event, levels = all_event_levels)
     
-    penalized_covs <- cb_data$covariates
-    scaler <- NULL
+    Y_factor <- factor(cb_data$event, levels = all_event_levels)
+    K_params <- nlevels(factor(cb_data$event)) - 1
+    
+    penalized_covs <- as.matrix(cb_data$covariates)
+    p_covs <- ncol(penalized_covs)
+    
+    scaler <- list(center = rep(0, p_covs), scale = rep(1, p_covs))
+    
+    names(scaler$center) <- colnames(penalized_covs)
+    names(scaler$scale) <- colnames(penalized_covs)
+    
     if (standardize) {
         #  center and scale
         center <- colMeans(penalized_covs, na.rm = TRUE)
-        scale <- apply(penalized_covs, 2, sd, na.rm = TRUE)
+        n <- nrow(penalized_covs)
+        scale <- apply(penalized_covs, 2, sd, na.rm = TRUE) * sqrt((n - 1) / n)
         
-        # Check for zero variance
-        if (any(scale == 0, na.rm = TRUE)) {
+        zero_var <- scale < .Machine$double.eps
+        if (any(zero_var)) {
             cli::cli_warn("Some covariates have zero variance and were not scaled.")
-            scale[scale == 0] <- 1
+            scale[zero_var] <- 1
         }
+        
         penalized_covs <- scale(penalized_covs, center = center, scale = scale)
         scaler <- list(center = center, scale = scale)
         
         if(!is.null(param_start)){
             
-            original_cov_coefs <- param_start[1:ncol(penalized_covs), , drop = FALSE]
+            beta_raw <- param_start[1:p_covs, , drop = FALSE]
             
-            intercept_adjustment <- crossprod(scaler$center, original_cov_coefs)
-            param_start[ncol(penalized_covs) + 1, ] <- param_start[ncol(penalized_covs) + 1, ] + intercept_adjustment
+            intercept_raw <- param_start[p_covs + 2, , drop = FALSE] 
             
-            param_start_scaled <- sweep(original_cov_coefs, 1, scaler$scale, FUN = "*")
+            # Scale beta
+            beta_scaled <- beta_raw * scaler$scale
             
-            param_start[1:ncol(penalized_covs), ] <- param_start_scaled
+            # Adjust intercept
+            intercept_adj <- colSums(beta_raw * scaler$center)
+            intercept_scaled <- intercept_raw + intercept_adj
+            
+            # Update param_start with scaled values
+            param_start[1:p_covs, ] <- beta_scaled
+            
+            param_start[p_covs + 2, ] <- intercept_scaled
+            
         }
         
     }
     
-    X <- stats::model.matrix(~., 
-                      data = data.frame(cbind(penalized_covs, 
-                                              time = log(cb_data$time))))
+    # X <- stats::model.matrix(~., 
+    #                   data = data.frame(cbind(penalized_covs, 
+    #                                           time = log(cb_data$time))))
     
-    X <- cbind(X[,-1], X[,1])
+    X <- cbind(penalized_covs, "log(time)" = log(cb_data$time), "(Intercept)" = 1)
     
     # design matrix
     # X <- as.matrix(cbind(penalized_covs, time = log(cb_data$time), 1))
@@ -263,44 +282,46 @@ fit_cb_model <- function(cb_data,
     fit <- do.call(fit_fun, opt_args)
     
     # Re-scaling
-    if (standardize) {
-        # Re-scale both matrices
-        for (coef_type in c("coefficients")) {
-            if (!is.null(fit[[coef_type]])) {
-                coefs_scaled <- fit[[coef_type]]
-                p_penalized <- ncol(penalized_covs)
-                
-                # Separate penalized from unpenalized coefficients
-                beta_penalized_scaled <- coefs_scaled[1:p_penalized, , drop = FALSE]
-                
-                # Re-scale coefficients
-                beta_penalized_orig <- sweep(beta_penalized_scaled, 1, scaler$scale, FUN = "/")
-                
-                # Adjust the intercept
-                intercept_adjustment <- colSums(as.matrix(sweep(beta_penalized_scaled, 1, scaler$center / scaler$scale, FUN = "*")), na.rm = TRUE)
-                intercept_orig <- coefs_scaled[nrow(coefs_scaled), ] - intercept_adjustment
-                
-                # full coefficient matrix on the original scale
-                coefs_orig <- rbind(
-                    beta_penalized_orig,
-                    coefs_scaled[p_penalized + 1, , drop = FALSE], 
-                    intercept_orig
-                )
-                
-                # Update row names to match the original structure
-                rownames(coefs_orig) <- c(colnames(cb_data$covariates), 
-                                          "log(time)", "(Intercept)")
-                
-                # Replace the coefficients in the fit object
-                fit[[coef_type]] <- round(coefs_orig, 8)
-            }
-        }
-        fit <- c(fit, scaler = list(scaler))
+    if (standardize && !is.null(fit$coefficients)) {
+        coefs_scaled <- fit$coefficients
+        
+        # Extract components from scaled fit
+        beta_covs_scaled <- coefs_scaled[1:p_covs, , drop = FALSE]
+        time_coef <- coefs_scaled[p_covs + 1, , drop = FALSE]
+        intercept_scaled <- coefs_scaled[p_covs + 2, , drop = FALSE]
+        
+        # Re-scale covariate coefficients
+        # beta_raw = beta_scaled / scale
+        beta_covs_orig <- beta_covs_scaled / scaler$scale
+        
+        # Adjust intercept
+        # intercept_raw = intercept_scaled - sum(beta_raw * center)
+        # intercept_raw = intercept_scaled - sum((beta_scaled / scale) * center)
+        intercept_adj <- colSums(beta_covs_scaled * (scaler$center / scaler$scale))
+        intercept_orig <- intercept_scaled - intercept_adj
+        
+        # Reconstruct coefficient matrix
+        coefs_orig <- rbind(beta_covs_orig, time_coef, intercept_orig)
+        rownames(coefs_orig) <- c(
+            colnames(cb_data$covariates), 
+            "log(time)", 
+            "(Intercept)"
+        )
+        
+        fit$coefficients <- coefs_orig
     }
+    
+    call <-  match.call()
+    call$lambda <- lambda
+    call$alpha <- penalty_params$alpha
+    call$n_unpenalized <- n_unpenalized
+    
     fit <- c(fit, 
              scaler = list(scaler),
              adjusted = F,
-             call = match.call())
+             call = call,
+             lambda = lambda,
+             alpha = penalty_params$alpha)
     class(fit) <- "cbSCRIP"
     return(fit)
 }
@@ -326,19 +347,16 @@ print.cbSCRIP <- function(x, ..., print_limit = 10) {
     cat("\n")
     
     # --- Model & Penalty Details ---
-    # Use rlang::`%||%` to handle cases where lambda might be named differently
-    lambda_expr <- x$call$lambda
-    alpha_expr <- x$call$alpha
+    lambda_call <- x$lambda
+    alpha_call <- x$alpha
     
-    if (!is.null(lambda_expr)) {
+    if (!is.null(lambda_call)) {
         # Evaluate the expression to get its numeric value
-        lambda_val <- eval(lambda_expr, envir = parent.frame())
-        cli::cat_bullet("Lambda: ", sprintf("%.4f", lambda_val), bullet = "info")
+        cli::cat_bullet("Lambda: ", sprintf("%.4f", lambda_call), bullet = "info")
     }
-    if (!is.null(alpha_expr)) {
+    if (!is.null(alpha_call)) {
         # Also evaluate alpha for robustness
-        alpha_val <- eval(alpha_expr, envir = parent.frame())
-        cli::cat_bullet("Alpha (for elastic-net): ", alpha_val, bullet = "info")
+        cli::cat_bullet("Alpha (for elastic-net): ", alpha_call, bullet = "info")
     }
     
     # --- Selected Coefficients Details ---

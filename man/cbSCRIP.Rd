@@ -9,21 +9,52 @@ cbSCRIP(
   data,
   regularization = "elastic-net",
   cb_data = NULL,
-  alpha = NULL,
   lambda = NULL,
-  nlambda = 100,
+  alpha = NULL,
+  nlambda = 50,
   n_unpenalized = 2,
-  ratio = 25,
-  ratio_event = 1,
+  ratio = 50,
+  ratio_event = "all",
   lambda_max = NULL,
   lambda.min.ratio = NULL,
-  warm_start = T,
+  warm_start = TRUE,
   coeffs = c("adjusted", "original"),
   ...
 )
 }
+\arguments{
+\item{formula}{A formula object.}
+
+\item{data}{The input data.frame.}
+
+\item{regularization}{Type of regularization.}
+
+\item{cb_data}{A case-base data list.}
+
+\item{lambda}{A vector of lambda values.}
+
+\item{alpha}{The alpha value.}
+
+\item{nlambda}{Number of lambda values.}
+
+\item{n_unpenalized}{Number of unpenalized predictors.}
+
+\item{ratio}{Sampling ratio.}
+
+\item{ratio_event}{Event ratio.}
+
+\item{lambda_max}{Max lambda.}
+
+\item{lambda.min.ratio}{Min lambda ratio.}
+
+\item{warm_start}{Logical, whether to use warm starts.}
+
+\item{coeffs}{Character, whether to return "adjusted" (refitted) or "original" coefficients.}
+
+\item{...}{Additional arguments.}
+}
 \value{
-An object of class \code{cb.path} containing coefficient paths.
+An object of class \code{cbSCRIP.path} or \code{cbSCRIP}.
 }
 \description{
 Fits the case-base model for a sequence of lambda values using warm starts,

@@ -16,6 +16,25 @@ create_lambda_grid(
   ...
 )
 }
+\arguments{
+\item{cb_data}{Case-base data.}
+
+\item{lambda}{A user-supplied lambda sequence.}
+
+\item{nlambda}{Number of lambda values.}
+
+\item{lambda_max}{The maximum lambda value.}
+
+\item{lambda.min.ratio}{Ratio for smallest lambda.}
+
+\item{regularization}{Type of regularization.}
+
+\item{alpha}{The alpha value.}
+
+\item{n_unpenalized}{Number of unpenalized predictors.}
+
+\item{...}{Additional arguments.}
+}
 \value{
 A numeric vector of lambda values.
 }
