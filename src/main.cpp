@@ -70,6 +70,7 @@ arma::mat grad_multinom_loss(
 }
 
 
+
 arma::mat grad_multinom_single(
         const arma::rowvec& x,
         int y,
@@ -77,21 +78,20 @@ arma::mat grad_multinom_single(
         const arma::mat& param,
         int K) {
     
-    // 1. The incoming offset_val represents log(1/p(t)).
     double offset = offset_val(0);
     
-    // Soft-clip the offset for numerical stability.
+    // Soft-clip the offset for numerical stability
     if (std::abs(offset) > 50.0) {
         offset = 50.0 * std::tanh(offset / 50.0);
     }
     
-    // 2. Add the offset to the scores of the K explicit classes.
+    // Compute linear scores for K explicit classes
     arma::vec linear_scores = param.t() * x.t() + offset; 
     
-    // 3. The baseline class is the reference, with a score of 0.
+    // Baseline class has score of 0
     double baseline_score = 0.0;
     
-    // 4. Stabilized softmax computation
+    // Stabilized softmax computation including baseline
     double max_score = std::max(linear_scores.max(), baseline_score);
     arma::vec exp_scores = arma::exp(linear_scores - max_score);
     double denom = arma::accu(exp_scores) + std::exp(baseline_score - max_score) + 1e-12;
@@ -103,7 +103,7 @@ arma::mat grad_multinom_single(
     
     arma::vec pi = exp_scores / denom; 
     
-    // 5. Gradient Calculation
+    // Gradient calculation
     grad_out = x.t() * pi.t(); 
     
     if (y > 0 && y <= K) {
@@ -112,51 +112,47 @@ arma::mat grad_multinom_single(
     return grad_out;
 }
 
-arma::mat compute_full_grad_vectorized(
-        const arma::mat& X,
-        const arma::vec& offsets,
+arma::mat grad_multinom_batch(
+        const arma::mat& Xb,
+        const arma::vec& Yb,
+        const arma::vec& offset_b,
         const arma::mat& param,
-        const arma::vec& Y
-) {
-    const int n = X.n_rows;
-    const int K = param.n_cols;
+        int K) {
     
-    // 1. Calculate scores for explicit classes, adding the offset to each.
-    arma::mat scores = X * param;
-    scores.each_col() += offsets;
+    const int b = Xb.n_rows; // Batch size
+    arma::vec offset_clipped = offset_b;
+    offset_clipped.transform([](double val) {
+        if (std::abs(val) > 50.0) return 50.0 * std::tanh(val / 50.0);
+        return val;
+    });
     
-    // 2. Stabilize using log-sum-exp trick.
-    double baseline_score = 0.0;
-    arma::vec max_scores = arma::max(scores, 1);
+    // linear predictor (b x K)
+    arma::mat Eta = Xb * param; // (b x K)
     
-    // --- CORRECTED LINE ---
-    // This finds all elements in max_scores that are less than baseline_score (0.0)
-    // and sets them to baseline_score. This is the correct way to perform a clamp.
-    max_scores.elem( arma::find(max_scores < baseline_score) ).fill(baseline_score);
+    // add offset to explicit class scores
+    Eta.each_col() += offset_clipped;
     
-    // 3. Compute probabilities.
-    scores.each_col() -= max_scores;
-    arma::mat expS = arma::exp(scores);
+    // stable softmax including baseline score 0
+    arma::vec max_scores = arma::max(Eta, 1);
+    max_scores = arma::max(max_scores, arma::zeros<arma::vec>(b)); // compare with baseline 0
+    Eta.each_col() -= max_scores; // broadcast subtraction
+    arma::mat Exp_Eta = arma::exp(Eta);
+    arma::vec Exp_Baseline = arma::exp(-max_scores);
+    arma::vec Denom = arma::sum(Exp_Eta, 1) + Exp_Baseline + 1e-12; // (b x 1)
+    arma::mat Pi = Exp_Eta.each_col() / Denom; // (b x K)
     
-    arma::vec exp_base = arma::exp(arma::zeros<arma::vec>(n) - max_scores);
-    
-    arma::vec denom = arma::sum(expS, 1) + exp_base + 1e-12;
-    
-    expS.each_col() /= denom;
-    
-    // 4. One-hot encoding for true labels.
-    arma::mat Yone(n, K, arma::fill::zeros);
-    for (int i = 0; i < n; ++i) {
-        if (Y(i) > 0 && Y(i) <= K)
-            Yone(i, Y(i) - 1) = 1.0;
+    // one-hot Y
+    arma::mat Y_one_hot(b, K, arma::fill::zeros);
+    for (int i = 0; i < b; ++i) {
+        int yi = static_cast<int>(Yb(i));
+        if (yi > 0 && yi <= K) Y_one_hot(i, yi - 1) = 1.0;
     }
     
-    // 5. Final vectorized gradient calculation.
-    arma::mat grad = X.t() * (expS - Yone);
-    grad /= static_cast<double>(n);
-    grad.replace(arma::datum::nan, 0.0);
-    return grad;
+    arma::mat Residuals = Pi - Y_one_hot; // (b x K)
+    arma::mat grad_batch = Xb.t() * Residuals; // (p x K)
+    return grad_batch;
 }
+
 
 void proximalFlat(
         arma::mat& U,
@@ -671,9 +667,9 @@ Rcpp::List MultinomLogisticSAGA(
         double lam1,
         double lam2,
         double lam3,
-        double tolerance = 1e-6,
+        double tolerance = 1e-4,
         double lr_adj = 1.0,
-        double max_lr = 1e-03,
+        double max_lr = 1.0,
         int maxit = 500,
         int ncores = 1,
         bool verbose = false,
@@ -693,18 +689,20 @@ Rcpp::List MultinomLogisticSAGA(
 
     // Initialize parameters
     arma::mat param(p, K, arma::fill::zeros);
+    
     if (param_start.isNotNull()) {
         param = Rcpp::as<arma::mat>(Rcpp::NumericMatrix(param_start));
     }
 
     // store the gradient of each sample
-    std::vector<arma::mat> grad_table(n);
+    arma::cube grad_table(p, K, n); // A single (p x K x n) memory block
     arma::mat grad_avg(p, K, arma::fill::zeros);
 
     for(int i = 0; i < n; ++i) {
-        grad_table[i] = grad_multinom_single(X.row(i), Y(i), offset.row(i), param, K);
-        grad_avg += grad_table[i];
+        grad_table.slice(i) = grad_multinom_single(X.row(i), Y(i), offset.row(i), param, K);
+        grad_avg += grad_table.slice(i);
     }
+    
     grad_avg /= static_cast<double>(n);
 
     arma::mat param_old(p, K);
@@ -714,26 +712,26 @@ Rcpp::List MultinomLogisticSAGA(
     // Outer loop
     for (int iter = 1; iter <= maxit; ++iter) {
         Rcpp::checkUserInterrupt();
+        
         param_old = param;
 
         // stochastic step
         arma::uvec indices = arma::randperm(n);
+        
         for (arma::uword j = 0; j < n; ++j) {
             int i = indices(j);
-
-            // old gradient for sample i
-            arma::mat grad_old_i = grad_table[i];
-
-            // new gradient for sample i
+            
+            arma::mat grad_old_i = grad_table.slice(i);
             arma::mat grad_new_i = grad_multinom_single(X.row(i), Y(i), offset.row(i), param, K);
-
+            
             arma::mat saga_update_direction = grad_new_i - grad_old_i + grad_avg;
-
+            
             grad_avg += (grad_new_i - grad_old_i) / static_cast<double>(n);
-
-            grad_table[i] = grad_new_i;
-
+            
+            grad_table.slice(i) = grad_new_i;
+            
             arma::mat param_unprox = param - learning_rate * saga_update_direction;
+            
             apply_proximal_step(param, param_unprox, learning_rate, reg_p, K, p, transpose, penalty, regul,
                                 grp_id, ncores, lam1, lam2, lam3, pos, grp, grpV, etaG, own_var, N_own_var);
         }
@@ -808,27 +806,20 @@ arma::mat compute_gradient(
     return grad;
 }
 
-// Lipschitz constant for the AVERAGE loss
-double estimate_lipschitz(const arma::mat& X) {
-    int n = X.n_rows;
+// Lipschitz constant
+double estimate_lipschitz(const arma::mat& X, int max_iters = 10) {
     int p = X.n_cols;
-    if (p == 0) return 1e-8;
+    arma::vec v = arma::randn<arma::vec>(p);
+    v /= arma::norm(v);
     
-    double max_eig;
-    if (p <= 150) {
-        arma::mat XtX = X.t() * X;
-        arma::vec eigvals = arma::eig_sym(XtX);
-        max_eig = eigvals.max();
-    } else {
-        arma::vec v = arma::randn<arma::vec>(p);
-        v = arma::normalise(v);
-        for (int i = 0; i < 50; ++i) {
-            arma::vec w = X.t() * (X * v);
-            v = arma::normalise(w);
-        }
-        max_eig = arma::dot(v, X.t() * (X * v));
+    for (int i = 0; i < max_iters; ++i) {
+        v = X.t() * (X * v);
+        double norm_v = arma::norm(v);
+        if (norm_v < 1e-12) break;
+        v /= norm_v;
     }
-    return std::max(max_eig / (4.0 * n), 1e-8);
+    
+    return arma::norm(X.t() * (X * v)) / 4.0;
 }
 
 
@@ -1038,3 +1029,1212 @@ double estimate_lipschitz(const arma::mat& X) {
 //         Rcpp::Named("Convergence Iteration") = convergence_iter
 //     );
 // }
+
+double estimate_multinomial_lipschitz(const arma::mat& X, int K, int max_iters = 15) {
+    int p = X.n_cols;
+    int n = X.n_rows;
+    
+    // For multinomial, we need to consider the structure
+    // A simple heuristic: use spectral norm of X'X / 4
+    arma::vec v = arma::randn<arma::vec>(p);
+    v /= arma::norm(v);
+    
+    for (int i = 0; i < max_iters; ++i) {
+        arma::vec v_old = v;
+        v = X.t() * (X * v);
+        double norm_v = arma::norm(v);
+        if (norm_v < 1e-12) break;
+        v /= norm_v;
+        
+        // Early convergence check
+        if (arma::norm(v - v_old) < 1e-8) break;
+    }
+    
+    double spectral_norm_sq = arma::norm(X.t() * (X * v));
+    
+    // For multinomial logistic regression, Lipschitz constant <= ||X||^2 / 4
+    // Use a conservative estimate
+    return spectral_norm_sq / 4.0;
+}
+
+// Adaptive learning rate finder using line search
+double find_adaptive_learning_rate(
+        const arma::mat& X,
+        const arma::vec& Y,
+        const arma::vec& offset,
+        const arma::mat& param,
+        const arma::mat& gradient,
+        int K,
+        double initial_lr = 10.0) {
+    
+    int n = X.n_rows;
+    double lr = initial_lr;
+    
+    // Try a few learning rates and pick the one that gives best objective improvement
+    double best_obj = arma::datum::inf;
+    double best_lr = initial_lr;
+    
+    // Test a range of learning rates
+    for (int attempt = 0; attempt < 5; ++attempt) {
+        double test_lr = lr * std::pow(0.5, attempt);
+        arma::mat test_param = param - test_lr * gradient;
+        
+        // Compute objective for a subset of data (for speed)
+        int subset_size = std::min(1000, n);
+        double obj = 0.0;
+        int count = 0;
+        
+        for (int i = 0; i < subset_size && count < 100; i += n/100) {
+            if (i >= n) break;
+            
+            arma::vec offset_i(1);
+            offset_i(0) = offset(i);
+            arma::rowvec x_i = X.row(i);
+            int y_i = Y(i);
+            
+            arma::vec linear_scores = test_param.t() * x_i.t() + offset_i(0);
+            double max_score = std::max(linear_scores.max(), 0.0);
+            arma::vec exp_scores = arma::exp(linear_scores - max_score);
+            double denom = arma::accu(exp_scores) + std::exp(-max_score) + 1e-12;
+            
+            if (y_i == 0) {
+                obj -= std::log(std::exp(-max_score) / denom);
+            } else {
+                obj -= std::log(exp_scores(y_i - 1) / denom);
+            }
+            count++;
+        }
+        
+        obj /= count;
+        
+        if (obj < best_obj && std::isfinite(obj)) {
+            best_obj = obj;
+            best_lr = test_lr;
+        }
+    }
+    
+    return best_lr;
+}
+
+// [[Rcpp::export]]
+Rcpp::List AutoTunedMultinomSAGA(
+        const arma::mat& X,
+        const arma::vec& Y,
+        const arma::vec& offset,
+        int K,
+        int reg_p,
+        int penalty,
+        std::string regul,
+        bool transpose,
+        Rcpp::IntegerVector grp_id,
+        Rcpp::NumericVector etaG,
+        const arma::mat& grp,
+        const arma::mat& grpV,
+        Rcpp::IntegerVector own_var,
+        Rcpp::IntegerVector N_own_var,
+        double lam1,
+        double lam2,
+        double lam3,
+        double tolerance = 1e-4,
+        int maxit = 500,
+        bool verbose = false,
+        bool pos = false,
+        Rcpp::Nullable<Rcpp::NumericMatrix> param_start = R_NilValue) {
+    
+    const int p = X.n_cols;
+    const int n = X.n_rows;
+    
+    // Initialize parameters
+    arma::mat param(p, K, arma::fill::zeros);
+    if (param_start.isNotNull()) {
+        param = Rcpp::as<arma::mat>(Rcpp::NumericMatrix(param_start));
+    }
+    
+    // Step 1: Estimate Lipschitz constant and set initial learning rate
+    if (verbose) Rcpp::Rcout << "Estimating Lipschitz constant..." << std::endl;
+    double L = estimate_multinomial_lipschitz(X, K);
+    double learning_rate = 1.0 / (2.0 * L); // Conservative initial estimate
+    
+    if (verbose) Rcpp::Rcout << "Initial learning rate: " << learning_rate << std::endl;
+    
+    // Gradient table
+    arma::cube grad_table(p, K, n, arma::fill::zeros);
+    arma::mat grad_avg(p, K, arma::fill::zeros);
+    
+    // Initialize gradient table
+    if (verbose) Rcpp::Rcout << "Initializing gradient table..." << std::endl;
+    for(int i = 0; i < n; ++i) {
+        arma::vec offset_i(1);
+        offset_i(0) = offset(i);
+        grad_table.slice(i) = grad_multinom_single(X.row(i), Y(i), offset_i, param, K);
+        grad_avg += grad_table.slice(i);
+    }
+    grad_avg /= n;
+    
+    arma::mat param_old(p, K);
+    bool converged = false;
+    int convergence_iter = -1;
+    
+    // Track progress for adaptive learning rate
+    double best_obj = arma::datum::inf;
+    int no_improvement_count = 0;
+    const int max_no_improvement = 100;
+    
+    if (verbose) Rcpp::Rcout << "Starting optimization..." << std::endl;
+    
+    for (int iter = 1; iter <= maxit; ++iter) {
+        Rcpp::checkUserInterrupt();
+        param_old = param;
+        
+        // Adaptive learning rate adjustment every 20 iterations
+        if (iter % 10 == 1 && iter > 1) {
+            // Compute current full gradient for learning rate tuning
+            arma::mat full_grad(p, K, arma::fill::zeros);
+            for(int i = 0; i < std::min(500, n); i += n/500) {
+                if (i >= n) break;
+                arma::vec offset_i(1);
+                offset_i(0) = offset(i);
+                full_grad += grad_multinom_single(X.row(i), Y(i), offset_i, param, K);
+            }
+            full_grad /= std::min(500, n);
+            
+            double new_lr = find_adaptive_learning_rate(X, Y, offset, param, full_grad, K, learning_rate);
+            
+            if (std::abs(new_lr - learning_rate) / learning_rate > 0.1) {
+                if (verbose) Rcpp::Rcout << "  Adjusting learning rate: " << learning_rate << " -> " << new_lr << std::endl;
+                learning_rate = new_lr;
+            }
+        }
+        
+        // Process samples
+        arma::uvec indices = arma::randperm(n);
+        double iter_max_change = 0.0;
+        
+        for (int j = 0; j < n; ++j) {
+            int i = indices(j);
+            arma::vec offset_i(1);
+            offset_i(0) = offset(i);
+            
+            // Compute new gradient
+            arma::mat grad_new = grad_multinom_single(X.row(i), Y(i), offset_i, param, K);
+            arma::mat grad_old = grad_table.slice(i);
+            
+            // SAGA update
+            arma::mat saga_direction = grad_new - grad_old + grad_avg;
+            
+            // Update gradient average and table
+            grad_avg += (grad_new - grad_old) / n;
+            grad_table.slice(i) = grad_new;
+            
+            // Proximal gradient step
+            arma::mat param_unprox = param - learning_rate * saga_direction;
+            
+            apply_proximal_step(param, param_unprox, learning_rate, reg_p, K, p, 
+                                transpose, penalty, regul, grp_id, 1, lam1, lam2, 
+                                lam3, pos, grp, grpV, etaG, own_var, N_own_var);
+            
+            // Track maximum parameter change in this iteration
+            double max_change = arma::norm(param - param_old, "fro");
+            if (max_change > iter_max_change) {
+                iter_max_change = max_change;
+            }
+        }
+        
+        // Convergence check
+        double diff = arma::norm(param - param_old, "fro") / std::max(arma::norm(param_old, "fro"), 1.0);
+        
+        // Monitor objective (approximate)
+        double current_obj = 0.0;
+        int obj_count = 0;
+        for (int i = 0; i < std::min(100, n); i += n/100) {
+            if (i >= n) break;
+            arma::vec offset_i(1);
+            offset_i(0) = offset(i);
+            arma::rowvec x_i = X.row(i);
+            int y_i = Y(i);
+            
+            arma::vec linear_scores = param.t() * x_i.t() + offset_i(0);
+            double max_score = std::max(linear_scores.max(), 0.0);
+            arma::vec exp_scores = arma::exp(linear_scores - max_score);
+            double denom = arma::accu(exp_scores) + std::exp(-max_score) + 1e-12;
+            
+            if (y_i == 0) {
+                current_obj -= std::log(std::exp(-max_score) / denom);
+            } else {
+                current_obj -= std::log(exp_scores(y_i - 1) / denom);
+            }
+            obj_count++;
+        }
+        current_obj /= obj_count;
+        
+        // Check for improvement
+        if (current_obj < best_obj - 1e-6) {
+            best_obj = current_obj;
+            no_improvement_count = 0;
+        } else {
+            no_improvement_count++;
+        }
+        
+        // Reduce learning rate if no improvement
+        if (no_improvement_count >= 5) {
+            learning_rate *= 0.8;
+            no_improvement_count = 0;
+            if (verbose) Rcpp::Rcout << "  Reducing learning rate to: " << learning_rate << std::endl;
+        }
+        
+        if (verbose && iter % 50 == 0) {
+            Rcpp::Rcout << "Iter " << iter << " | Change: " << diff 
+                        << " | LR: " << learning_rate 
+                        << " | Obj: " << current_obj << std::endl;
+        }
+        
+        if (diff < tolerance) {
+            converged = true;
+            convergence_iter = iter;
+            if (verbose) Rcpp::Rcout << "Converged at iteration " << iter << std::endl;
+            break;
+        }
+        
+        if (iter > 50 && diff > 10.0) {
+            // Divergence detected - reduce learning rate and restart from previous
+            learning_rate *= 0.5;
+            param = param_old;
+            if (verbose) Rcpp::Rcout << "Divergence detected, reducing LR to: " << learning_rate << std::endl;
+        }
+        
+        if (!param.is_finite()) {
+            Rcpp::warning("Non-finite parameter values detected.");
+            param = param_old;
+            break;
+        }
+    }
+    
+    return Rcpp::List::create(
+        Rcpp::Named("Estimates") = param,
+        Rcpp::Named("Converged") = converged,
+        Rcpp::Named("Convergence Iteration") = convergence_iter,
+        Rcpp::Named("FinalLearningRate") = learning_rate
+    );
+}
+
+double prox_scad_scalar(double val, double lambda, double a = 3.7) {
+    if (lambda <= 0.0) return val;
+    
+    double abs_val = std::abs(val);
+    if (a <= 2.0) a = 3.7;
+    
+    if (abs_val <= lambda) {
+        return 0.0;
+    } else if (abs_val <= 2.0 * lambda) {
+        return std::copysign(abs_val - lambda, val);
+    } else if (abs_val <= a * lambda) {
+        return ((a - 1.0) * val - std::copysign(a * lambda, val)) / (a - 2.0);
+    } else {
+        return val;
+    }
+}
+
+double prox_elastic_net_scalar(double val, double lam1, double lam2) {
+    if (lam1 <= 0.0 && lam2 <= 0.0) return val;
+    
+    double abs_val = std::abs(val);
+    if (abs_val <= lam1) return 0.0;
+    
+    double st = std::copysign(abs_val - lam1, val);
+    return st / (1.0 + lam2);
+}
+
+arma::vec prox_scad_vec(const arma::vec& vals, double lambda, double a = 3.7) {
+    arma::vec result = vals;
+    result.for_each([&](double& val) {
+        val = prox_scad_scalar(val, lambda, a);
+    });
+    return result;
+}
+
+arma::vec prox_elastic_net_vec(const arma::vec& vals, double lam1, double lam2) {
+    arma::vec result = vals;
+    result.for_each([&](double& val) {
+        val = prox_elastic_net_scalar(val, lam1, lam2);
+    });
+    return result;
+}
+
+// -----------------------------------------------------------------------------
+// CCD HELPER FUNCTIONS
+// -----------------------------------------------------------------------------
+
+void update_probabilities_optimized(const arma::mat& Eta, 
+                                    arma::mat& P, 
+                                    const arma::vec& offset) {
+    int n = Eta.n_rows;
+    int K = Eta.n_cols;
+    
+    for (int i = 0; i < n; ++i) {
+        // Find maximum for numerical stability
+        double max_val = 0.0; // Baseline class has score 0
+        for (int k = 0; k < K; ++k) {
+            double current = Eta(i, k) + offset(i);
+            if (current > max_val) max_val = current;
+        }
+        
+        // Compute exponentials and sum
+        double sum_exp = 0.0;
+        
+        // Baseline class (class 0)
+        double baseline_exp = std::exp(-max_val);
+        P(i, 0) = baseline_exp;
+        sum_exp += baseline_exp;
+        
+        // Non-baseline classes
+        for (int k = 0; k < K; ++k) {
+            double exp_val = std::exp(Eta(i, k) + offset(i) - max_val);
+            P(i, k + 1) = exp_val;
+            sum_exp += exp_val;
+        }
+        
+        // Normalize probabilities
+        if (sum_exp > 1e-12) {
+            for (int k = 0; k <= K; ++k) {
+                P(i, k) /= sum_exp;
+            }
+        } else {
+            double uniform_prob = 1.0 / (K + 1);
+            for (int k = 0; k <= K; ++k) {
+                P(i, k) = uniform_prob;
+            }
+        }
+    }
+}
+
+arma::vec compute_hessian_bounds(const arma::mat& X, int K) {
+    int p = X.n_cols;
+    arma::vec h_j(p);
+    
+    for (int j = 0; j < p; ++j) {
+        double norm_sq = arma::accu(arma::square(X.col(j)));
+        h_j(j) = 0.25 * norm_sq + 1e-12;
+    }
+    
+    return h_j;
+}
+
+// -----------------------------------------------------------------------------
+// OPTIMIZED CCD SOLVER
+// -----------------------------------------------------------------------------
+
+// [[Rcpp::export]]
+Rcpp::List MultinomLogisticCCD(
+        const arma::mat& X,
+        const arma::vec& Y,
+        const arma::vec& offset,
+        int K,
+        int penalty = 1,
+        double lam1 = 0.0,
+        double lam2 = 0.0,
+        double tolerance = 1e-5,
+        int maxit = 500,
+        double lr_adj = 1.0,
+        bool verbose = false,
+        bool pos = false,
+        Rcpp::Nullable<Rcpp::NumericMatrix> param_start = R_NilValue) {
+    
+    const int p = X.n_cols;
+    const int n = X.n_rows;
+    
+    // Initialize parameters
+    arma::mat param(p, K, arma::fill::zeros);
+    if (param_start.isNotNull()) {
+        param = Rcpp::as<arma::mat>(Rcpp::NumericMatrix(param_start));
+    }
+    
+    // Very conservative learning rates
+    arma::vec h_j = compute_hessian_bounds(X, K);
+    arma::vec learning_rates = lr_adj / h_j;  // Even more conservative
+    
+    // Initialize matrices
+    arma::mat Eta = X * param;
+    arma::mat P(n, K + 1, arma::fill::zeros);
+    update_probabilities_optimized(Eta, P, offset);
+    
+    arma::mat Y_one_hot(n, K + 1, arma::fill::zeros);
+    for (int i = 0; i < n; ++i) {
+        Y_one_hot(i, static_cast<int>(Y(i))) = 1.0;
+    }
+    
+    arma::mat R = Y_one_hot.cols(1, K) - P.cols(1, K);
+    
+    bool converged = false;
+    int convergence_iter = -1;
+    
+    // Simple version without active set for stability
+    for (int iter = 1; iter <= maxit; ++iter) {
+        Rcpp::checkUserInterrupt();
+        
+        double max_delta = 0.0;
+        
+        for (int j = 0; j < p; ++j) {
+            arma::vec beta_old_j = param.row(j).t();
+            arma::rowvec block_grad_j = X.col(j).t() * R;
+            
+            double lr = learning_rates(j);
+            arma::vec beta_unprox_j = beta_old_j - lr * block_grad_j.t();
+            arma::vec beta_new_j;
+            
+            if (penalty == 1) {
+                double scaled_lam1 = lam1 * lr;
+                double scaled_lam2 = lam2 * lr;
+                beta_new_j = prox_elastic_net_vec(beta_unprox_j, scaled_lam1, scaled_lam2);
+            } else {
+                double scaled_lam1 = lam1 * lr;
+                double a_scad = (lam2 >= 2.1) ? lam2 : 3.7;
+                beta_new_j = prox_scad_vec(beta_unprox_j, scaled_lam1, a_scad);
+            }
+            
+            if (pos) {
+                beta_new_j.elem(arma::find(beta_new_j < 0.0)).zeros();
+            }
+            
+            arma::vec delta_beta_j = beta_new_j - beta_old_j;
+            double max_coef_change = arma::max(arma::abs(delta_beta_j));
+            
+            if (max_coef_change > 1e-12) {
+                param.row(j) = beta_new_j.t();
+                Eta += X.col(j) * delta_beta_j.t();
+                max_delta = std::max(max_delta, max_coef_change);
+            }
+        }
+        
+        // Always update probabilities
+        update_probabilities_optimized(Eta, P, offset);
+        R = Y_one_hot.cols(1, K) - P.cols(1, K);
+        
+        if (verbose && iter % 50 == 0) {
+            Rcpp::Rcout << "Iter " << iter << " | Max Change: " << max_delta << std::endl;
+        }
+        
+        if (max_delta < tolerance) {
+            converged = true;
+            convergence_iter = iter;
+            break;
+        }
+        
+        if (!param.is_finite()) {
+            Rcpp::warning("Non-finite parameter values detected.");
+            break;
+        }
+    }
+    
+    return Rcpp::List::create(
+        Rcpp::Named("Estimates") = param,
+        Rcpp::Named("Converged") = converged,
+        Rcpp::Named("Convergence Iteration") = convergence_iter
+    );
+}
+
+
+/**
+ * Applies the native proximal step (Elastic Net or SCAD).
+ */
+void apply_proximal_step_native(
+        arma::mat& param,
+        const arma::mat& param_unprox,
+        double learning_rate,
+        int reg_p, int p, int K,
+        int penalty, // 1 = elastic.net, 2 = scad
+        double lam1, double lam2,
+        bool pos
+) {
+    
+    // Check if there is any penalty to apply
+    if (lam1 <= 0.0 && (penalty == 2 || lam2 <= 0.0)) {
+        param = param_unprox;
+        return;
+    }
+    
+    // Apply penalty only to the first reg_p rows
+    if (reg_p > 0) {
+        arma::mat U = param_unprox.head_rows(reg_p);
+        
+        // Loop over K classes to apply vector-wise prox
+        for(int k = 0; k < K; ++k) {
+            arma::vec u_k = U.col(k);
+            arma::vec prox_k;
+            
+            if (penalty == 1) { // Elastic Net
+                double scaled_lam1 = lam1 * learning_rate;
+                double scaled_lam2 = lam2 * learning_rate;
+                prox_k = prox_elastic_net_vec(u_k, scaled_lam1, scaled_lam2);
+            } else { // SCAD
+                double scaled_lam1 = lam1 * learning_rate;
+                double a_scad = (lam2 >= 2.1) ? lam2 : 3.7;
+                prox_k = prox_scad_vec(u_k, scaled_lam1, a_scad);
+            }
+            
+            if (pos) {
+                prox_k.elem(arma::find(prox_k < 0.0)).zeros();
+            }
+            
+            param.submat(0, k, reg_p - 1, k) = prox_k;
+        }
+    }
+    
+    // Copy unpenalized rows
+    if (reg_p < p) {
+        param.tail_rows(p - reg_p) = param_unprox.tail_rows(p - reg_p);
+    }
+}
+
+
+// -----------------------------------------------------------------------------
+// NATIVE SAGA SOLVER
+// -----------------------------------------------------------------------------
+
+// [[Rcpp::export]]
+Rcpp::List MultinomLogisticSAGAN(
+        const arma::mat& X,
+        const arma::vec& Y,
+        const arma::vec& offset,
+        int K,
+        int reg_p,
+        int penalty = 1, // 1 = elastic.net, 2 = scad
+        double lam1 = 0.0,
+        double lam2 = 0.0,
+        double tolerance = 1e-4,
+        double lr_adj = 1.0,
+        double max_lr = 1.0,
+        int maxit = 500,
+        bool verbose = false,
+        bool pos = false,
+        Rcpp::Nullable<Rcpp::NumericMatrix> param_start = R_NilValue) {
+    
+    const int p = X.n_cols;
+    const int n = X.n_rows;
+    
+    //  Learning Rate
+    if (verbose) Rcpp::Rcout << "Estimating Lipschitz constant..." << std::endl;
+    double L = get_lambda_max(X) / 4.0;
+    double base_learning_rate = 1.0 / (6.0 * L + 1e-12);
+    double learning_rate = std::min(lr_adj * base_learning_rate, max_lr);
+    
+    if (verbose) Rcpp::Rcout << "  Lipschitz constant L = " << L << ", Learning Rate = " << learning_rate << std::endl;
+    
+    // Initialize Parameters 
+    arma::mat param(p, K, arma::fill::zeros);
+    arma::mat param_for_init(p, K, arma::fill::zeros);
+    if (param_start.isNotNull()) {
+        param = Rcpp::as<arma::mat>(Rcpp::NumericMatrix(param_start));
+    }
+    
+    // Initialize Gradient Table
+    if (verbose) Rcpp::Rcout << "Initializing gradient table..." << std::endl;
+    arma::cube grad_table(p, K, n);
+    arma::mat grad_avg(p, K, arma::fill::zeros);
+    
+    for(int i = 0; i < n; ++i) {
+        grad_table.slice(i) = grad_multinom_single(X.row(i), Y(i), offset.row(i), 
+                         param_for_init, // <-- USE ZEROS
+                         K);
+        grad_avg += grad_table.slice(i);
+    }
+    grad_avg /= static_cast<double>(n);
+    if (verbose) Rcpp::Rcout << "Initialization complete." << std::endl;
+    
+    // SAGA Loop 
+    arma::mat param_old(p, K);
+    bool converged = false;
+    int convergence_iter = -1;
+    
+    double best_kkt_violation = arma::datum::inf;
+    int epochs_since_improvement = 0;
+    const int patience = 10; 
+    const double lr_decrease_factor = 0.5;
+    double diff;
+    
+    for (int iter = 1; iter <= maxit; ++iter) {
+        Rcpp::checkUserInterrupt();
+        param_old = param;
+        
+        arma::uvec indices = arma::randperm(n);
+        
+        for (arma::uword j = 0; j < n; ++j) {
+            int i = indices(j);
+            
+            // Get old gradient from table
+            arma::mat grad_old_i = grad_table.slice(i);
+            
+            // Compute new gradient for this sample
+            arma::mat grad_new_i = grad_multinom_single(X.row(i), Y(i), offset.row(i), param, K);
+            
+            // SAGA update direction
+            arma::mat saga_update_direction = grad_new_i - grad_old_i + grad_avg;
+            
+            // Update average gradient and gradient table
+            grad_avg += (grad_new_i - grad_old_i) / static_cast<double>(n);
+            grad_table.slice(i) = grad_new_i;
+            
+            // Gradient descent step
+            arma::mat param_unprox = param - learning_rate * saga_update_direction;
+            
+            // Apply native proximal step
+            apply_proximal_step_native(param, param_unprox, learning_rate, reg_p, p, K,
+                                       penalty, lam1, lam2, pos);
+        }
+        
+        // Convergence Check
+        double diff;
+        arma::mat grad_penalized = grad_avg.head_rows(reg_p);
+        arma::mat violations;
+        
+        violations = arma::max(
+            arma::zeros(reg_p, K), 
+            arma::abs(grad_penalized) - lam1
+        );
+        double v_max = violations.max();
+        
+        // --- 6. Adaptive Learning Rate Logic ---
+        // (This logic is fine, but now it's working with a stabler base LR)
+        if (v_max < (best_kkt_violation - tolerance * 0.1)) {
+            best_kkt_violation = v_max;
+            epochs_since_improvement = 0;
+        } else {
+            epochs_since_improvement++;
+        }
+        
+        if (epochs_since_improvement >= patience) {
+            learning_rate *= lr_decrease_factor;
+            if (verbose) {
+                Rcpp::Rcout << " (No improvement for " << patience << " epochs. LR decreased to " 
+                            << learning_rate << ")";
+            }
+            epochs_since_improvement = 0;
+            best_kkt_violation = v_max; 
+        }
+        
+        diff = arma::abs(param - param_old).max();
+        
+        if (verbose && (iter % 10 == 0 || iter == 1)) {
+            Rcpp::Rcout << "Iter " << iter << " | Relative Change: " << diff << std::endl;
+        }
+        
+        if (iter >= 3 && diff < tolerance) {
+            converged = true;
+            convergence_iter = iter;
+            if (verbose) Rcpp::Rcout << "Converged at iteration " << iter << std::endl;
+            break;
+        }
+        
+        if (learning_rate < 1e-12) {
+            if(verbose) Rcpp::Rcout << "Learning rate is zero. Stopping." << std::endl;
+            break;
+        }
+        
+        if (!param.is_finite()) {
+            Rcpp::warning("Algorithm diverged with non-finite parameter values.");
+            break;
+        }
+    }
+    
+    return Rcpp::List::create(
+        Rcpp::Named("Estimates") = param,
+        Rcpp::Named("Converged") = converged,
+        Rcpp::Named("Convergence Iteration") = convergence_iter
+    );
+}
+
+// [[Rcpp::export]]
+Rcpp::List MultinomLogisticSVRG_Native(
+        const arma::mat& X,
+        const arma::vec& Y,
+        const arma::vec& offset,
+        int K,
+        int reg_p,
+        int penalty = 1, // 1 = elastic.net, 2 = scad
+        double lam1 = 0.0,
+        double lam2 = 0.0,
+        double tolerance = 1e-4,
+        double learning_rate = 1e-2, 
+        int maxit = 100,
+        bool verbose = false,
+        bool pos = false,
+        Rcpp::Nullable<Rcpp::NumericMatrix> param_start = R_NilValue) {
+    
+    const int p = X.n_cols;
+    const int n = X.n_rows;
+    
+    // --- 1. Initialize Parameters ---
+    arma::mat param(p, K, arma::fill::zeros);
+    if (param_start.isNotNull()) {
+        param = Rcpp::as<arma::mat>(Rcpp::NumericMatrix(param_start));
+    }
+    
+    // --- 2. SVRG Loop (No grad_table) ---
+    arma::mat param_old(p, K);
+    arma::mat param_snapshot(p, K);
+    arma::mat grad_full_snapshot(p, K);
+    
+    bool converged = false;
+    int convergence_iter = -1;
+    const int min_iter = (param_start.isNotNull()) ? 1 : 2; // min_iter fix
+    double diff;
+    
+    // --- Adaptive LR Settings ---
+    double best_diff = arma::datum::inf;
+    int epochs_since_improvement = 0;
+    const int patience = 5; // How many epochs to wait before reducing LR
+    const double lr_decrease_factor = 0.5;
+    
+    for (int iter = 1; iter <= maxit; ++iter) {
+        Rcpp::checkUserInterrupt();
+        
+        // --- SVRG Snapshot ---
+        // 1. Store the current parameter state
+        param_snapshot = param;
+        
+        // 2. Compute the full, *average* gradient at this snapshot
+        // This is one O(n*p*K) operation, but it's done *outside* the inner loop
+        grad_full_snapshot = grad_multinom_batch(X, Y, offset, param_snapshot, K);
+        
+        // Store parameters before the inner loop for convergence check
+        param_old = param;
+        
+        // --- 3. Inner Stochastic Loop ---
+        arma::uvec indices = arma::randperm(n);
+        
+        for (arma::uword j = 0; j < n; ++j) {
+            int i = indices(j);
+            
+            // Compute new gradient at *current* param
+            arma::mat grad_new_i = grad_multinom_single(X.row(i), Y(i), offset.row(i), param, K);
+            
+            // Compute "old" gradient at the *snapshot* param
+            arma::mat grad_old_i = grad_multinom_single(X.row(i), Y(i), offset.row(i), param_snapshot, K);
+            
+            // 4. SVRG update direction (corrects the noise)
+            arma::mat svrg_update_direction = grad_new_i - grad_old_i + grad_full_snapshot;
+            
+            // Gradient descent step
+            arma::mat param_unprox = param - learning_rate * svrg_update_direction;
+            
+            // Apply native proximal step
+            apply_proximal_step_native(param, param_unprox, learning_rate, reg_p, p, K,
+                                       penalty, lam1, lam2, pos);
+        } // --- End inner loop ---
+        
+        // --- 5. Convergence & Adaptive LR Check ---
+        diff = arma::abs(param - param_old).max();
+        
+        // Check if we are improving
+        if (diff < best_diff) {
+            best_diff = diff;
+            epochs_since_improvement = 0;
+        } else {
+            epochs_since_improvement++;
+        }
+        
+        // If no improvement for 'patience' epochs, cut the learning rate
+        if (epochs_since_improvement >= patience) {
+            learning_rate *= lr_decrease_factor;
+            if (verbose) {
+                Rcpp::Rcout << " (No improvement. LR decreased to " << learning_rate << ")";
+            }
+            // Reset counters
+            epochs_since_improvement = 0;
+            best_diff = arma::datum::inf; // Reset best diff
+        }
+        
+        if (verbose && (iter % 1 == 0)) { // SVRG epochs are slow, print every time
+            Rcpp::Rcout << "Epoch " << iter << " | Max Param Change: " << diff << std::endl;
+        }
+        
+        if (iter >= min_iter && diff < tolerance) {
+            converged = true;
+            convergence_iter = iter;
+            if (verbose) Rcpp::Rcout << "Converged at iteration " << iter << std::endl;
+            break;
+        }
+        
+        if (learning_rate < 1e-12) {
+            if(verbose) Rcpp::Rcout << "Learning rate is zero. Stopping." << std::endl;
+            break;
+        }
+        
+        if (!param.is_finite()) {
+            Rcpp::warning("Algorithm diverged with non-finite parameter values.");
+            break;
+        }
+    } // --- End epoch loop ---
+    
+    return Rcpp::List::create(
+        Rcpp::Named("Estimates") = param,
+        Rcpp::Named("Converged") = converged,
+        Rcpp::Named("Convergence Iteration") = convergence_iter
+    );
+}
+
+// -----------------------------------------------------------------------------
+// Helper: compute per-sample residual row (1 x K) = p_hat - y_onehot
+// Uses stable softmax with baseline score = 0.0 (explicit K classes in param)
+// -----------------------------------------------------------------------------
+
+static inline double estimate_lipschitz_default(const arma::mat &X) {
+    // cheap approximation: max row norm squared / 4
+    double max_row_norm_sq = 0.0;
+    for (arma::uword i = 0; i < X.n_rows; ++i) {
+        double s = arma::dot(X.row(i), X.row(i));
+        if (s > max_row_norm_sq) max_row_norm_sq = s;
+    }
+    return std::max(1e-12, max_row_norm_sq / 4.0);
+}
+
+static inline arma::rowvec compute_residual_row(const arma::rowvec& xrow,
+                                                int yi,
+                                                double offset_i,
+                                                const arma::mat& param) {
+    // linear scores for explicit classes (1 x K)
+    arma::rowvec scores = xrow * param; // 1 x K
+    // add offset to explicit classes (keeps original code behavior)
+    scores += offset_i;
+    
+    // stable softmax against baseline 0
+    double max_score = scores.max();
+    if (max_score < 0.0) max_score = 0.0; // compare with baseline
+    arma::rowvec ex = arma::exp(scores - max_score);
+    double denom = arma::accu(ex) + std::exp(0.0 - max_score) + arma::datum::eps;
+    arma::rowvec p_hat = ex / denom; // 1 x K
+    
+    arma::rowvec r = p_hat;
+    if (yi > 0 && yi <= (int)p_hat.n_cols) r(yi - 1) -= 1.0;
+    return r; // 1 x K
+}
+
+// -----------------------------------------------------------------------------
+// NATIVE SAGA SOLVER (residual-cache implementation)
+// -----------------------------------------------------------------------------
+
+// [[Rcpp::export]]
+Rcpp::List MultinomLogisticSAGA_Native(
+        const arma::mat& X,
+        const arma::vec& Y,
+        const arma::vec& offset,
+        int K,
+        int reg_p,
+        int penalty = 1, // 1 = elastic.net, 2 = scad
+        double lam1 = 0.0,
+        double lam2 = 0.0,
+        double tolerance = 1e-4,
+        double lr_adj = 1.0,
+        double max_lr = 1.0,
+        int maxit = 500,
+        bool verbose = false,
+        bool pos = false,
+        Rcpp::Nullable<Rcpp::NumericMatrix> param_start = R_NilValue) {
+
+    const int p = X.n_cols;
+    const int n = X.n_rows;
+
+    if (reg_p < 0) reg_p = 0;
+    if (reg_p > p) reg_p = p;
+
+    // 1) Lipschitz approx (max row norm^2 / 4) - cheap and stable
+    if (verbose) Rcpp::Rcout << "Estimating Lipschitz constant (approx)..." << std::endl;
+
+    double L = estimate_lipschitz_default(X);
+    double base_learning_rate = 1.0 / (6.0 * L + 1e-12);
+    double learning_rate = std::min(lr_adj * base_learning_rate, max_lr);
+    if (verbose) Rcpp::Rcout << "  L = " << L << ", LR = " << learning_rate << std::endl;
+
+    // 2) initialize parameters with warm-start if provided
+    arma::mat param(p, K, arma::fill::zeros);
+    if (param_start.isNotNull()) {
+        param = Rcpp::as<arma::mat>(Rcpp::NumericMatrix(param_start));
+        if ((int)param.n_rows != p || (int)param.n_cols != K) {
+            Rcpp::stop("param_start has incompatible dimensions");
+        }
+    }
+
+    // 3) Initialize residual cache R (n x K) using current param (warm-start correctness)
+    arma::mat Rcache(n, K, arma::fill::zeros);
+    for (int i = 0; i < n; ++i) {
+        int yi = static_cast<int>(Y(i));
+        Rcache.row(i) = compute_residual_row(X.row(i), yi, offset(i), param);
+    }
+
+    // 4) grad_avg = X^T * R / n
+    arma::mat grad_avg = (X.t() * Rcache) / static_cast<double>(n);
+
+    // Preallocate temporaries
+    arma::mat param_old(p, K, arma::fill::zeros);
+    arma::rowvec r_old(K);
+    arma::rowvec r_new(K);
+    arma::rowvec delta_r(K);
+
+    bool converged = false;
+    int convergence_iter = -1;
+
+    double best_kkt_violation = arma::datum::inf;
+    int epochs_since_improvement = 0;
+    const int patience = 10;
+    const double lr_decrease_factor = 0.5;
+
+    // Main SAGA Epoch Loop
+    for (int iter = 1; iter <= maxit; ++iter) {
+        Rcpp::checkUserInterrupt();
+        param_old = param;
+
+        arma::uvec indices = arma::randperm(n);
+
+        for (arma::uword jj = 0; jj < indices.n_elem; ++jj) {
+            int i = static_cast<int>(indices(jj));
+
+            // residuals
+            r_old = Rcache.row(i);
+            r_new = compute_residual_row(X.row(i), static_cast<int>(Y(i)), offset(i), param);
+            delta_r = r_new - r_old; // 1 x K
+
+            // outer product x_i^T * delta_r -> p x K
+            arma::mat x_outer = X.row(i).t() * delta_r; // p x K
+
+            // SAGA update direction: x_outer + grad_avg
+            arma::mat saga_update_direction = x_outer + grad_avg;
+
+            // update grad_avg and cache
+            grad_avg += x_outer / static_cast<double>(n);
+            Rcache.row(i) = r_new;
+
+            // gradient descent step then proximal
+            arma::mat param_unprox = param - learning_rate * saga_update_direction;
+            apply_proximal_step_native(param, param_unprox, learning_rate, reg_p, p, K,
+                                       penalty, lam1, lam2, pos);
+        }
+
+        // Convergence & KKT check every epoch
+        arma::mat grad_penalized = grad_avg.head_rows(reg_p);
+        arma::mat violations = arma::max(arma::zeros(reg_p, K), arma::abs(grad_penalized) - lam1);
+        double v_max = (violations.n_elem > 0) ? violations.max() : 0.0;
+
+        if (v_max < (best_kkt_violation - tolerance * 0.1)) {
+            best_kkt_violation = v_max;
+            epochs_since_improvement = 0;
+        } else {
+            epochs_since_improvement++;
+        }
+        if (epochs_since_improvement >= patience) {
+            learning_rate *= lr_decrease_factor;
+            if (verbose) Rcpp::Rcout << " (No improvement for " << patience << " epochs. LR decreased to " << learning_rate << ")\n";
+            epochs_since_improvement = 0;
+            best_kkt_violation = v_max;
+        }
+
+        double diff = arma::abs(param - param_old).max();
+        if (verbose && (iter % 10 == 0 || iter == 1)) {
+            Rcpp::Rcout << "Iter " << iter << " | Max param change: " << diff << " | KKT viol: " << v_max << std::endl;
+        }
+
+        if (iter >= 3 && diff < tolerance) {
+            converged = true;
+            convergence_iter = iter;
+            if (verbose) Rcpp::Rcout << "Converged at iteration " << iter << std::endl;
+            break;
+        }
+
+        if (learning_rate < 1e-12) {
+            if (verbose) Rcpp::Rcout << "Learning rate became too small. Stopping." << std::endl;
+            break;
+        }
+
+        if (!param.is_finite()) {
+            Rcpp::warning("Algorithm diverged with non-finite parameter values.");
+            break;
+        }
+    }
+
+    return Rcpp::List::create(
+        Rcpp::Named("Estimates") = param,
+        Rcpp::Named("Converged") = converged,
+        Rcpp::Named("Convergence Iteration") = convergence_iter
+    );
+}
+// Rcpp::List MultinomLogisticSAGA_Native(
+//         const arma::mat& X,
+//         const arma::vec& Y,
+//         const arma::vec& offset,
+//         int K,
+//         int reg_p,
+//         int penalty = 1, // 1 = elastic.net, 2 = scad
+//         double lam1 = 0.0,
+//         double lam2 = 0.0,
+//         double tolerance = 1e-4,
+//         double lr_adj = 1.0,
+//         double max_lr = 1.0,
+//         int maxit = 500,
+//         bool verbose = false,
+//         bool pos = false,
+//         Rcpp::Nullable<Rcpp::NumericMatrix> param_start = R_NilValue,
+//         int min_epochs = 5,          // NEW optional: minimum epochs before stopping
+//         int patience_stop = 3        // NEW optional: consecutive epochs needed to accept stopping
+// ) {
+//     const int p = X.n_cols;
+//     const int n = X.n_rows;
+//     
+//     if (reg_p < 0) reg_p = 0;
+//     if (reg_p > p) reg_p = p;
+//     
+//     // --- 1. Learning Rate ---
+//     if (verbose) Rcpp::Rcout << "Estimating Lipschitz constant (approx)..." << std::endl;
+//     double L = estimate_lipschitz_default(X);
+//     double base_learning_rate = 1.0 / (6.0 * L + 1e-12);
+//     double learning_rate = std::min(lr_adj * base_learning_rate, max_lr);
+//     if (verbose) Rcpp::Rcout << "  L = " << L << ", Base LR = " << base_learning_rate << ", Initial LR = " << learning_rate << std::endl;
+//     
+//     // --- 2. Initialize Parameters (warm start allowed) ---
+//     arma::mat param(p, K, arma::fill::zeros);
+//     bool is_warm = false;
+//     if (param_start.isNotNull()) {
+//         param = Rcpp::as<arma::mat>(Rcpp::NumericMatrix(param_start));
+//         if ((int)param.n_rows != p || (int)param.n_cols != K) {
+//             Rcpp::stop("param_start has incompatible dimensions");
+//         }
+//         // consider warm if not all zeros
+//         if (arma::abs(param).max() > 0.0) is_warm = true;
+//     }
+//     
+//     // If warm-starting, be conservative on LR and increase min_epochs
+//     if (is_warm) {
+//         learning_rate = std::min(learning_rate, base_learning_rate * 0.5);
+//         min_epochs = std::max(min_epochs, std::min(50, min_epochs * 3)); // give more time to settle (tunable)
+//         if (verbose) Rcpp::Rcout << " Warm start detected. LR scaled to " << learning_rate << " and min_epochs -> " << min_epochs << std::endl;
+//     }
+//     
+//     // --- 3. Residual cache and grad_avg initialized from param (warm-start correct) ---
+//     arma::mat Rcache(n, K, arma::fill::zeros);
+//     for (int i = 0; i < n; ++i) {
+//         int yi = static_cast<int>(Y(i));
+//         Rcache.row(i) = compute_residual_row(X.row(i), yi, offset(i), param);
+//     }
+//     arma::mat grad_avg = (X.t() * Rcache) / static_cast<double>(n);
+//     
+//     // Preallocs
+//     arma::mat param_old(p, K);
+//     arma::rowvec r_old(K); arma::rowvec r_new(K);
+//     
+//     bool converged = false;
+//     int convergence_iter = -1;
+//     
+//     // Adaptive LR logic
+//     double last_kkt_violation = arma::datum::inf;
+//     const double lr_increase_factor = 1.02;
+//     const double lr_decrease_factor = 0.5;
+//     
+//     int consecutive_good = 0; // must have `patience_stop` consecutive good epochs before stopping
+//     
+//     // Main loop
+//     for (int iter = 1; iter <= maxit; ++iter) {
+//         Rcpp::checkUserInterrupt();
+//         param_old = param;
+//         
+//         arma::uvec indices = arma::randperm(n);
+//         
+//         for (arma::uword jj = 0; jj < indices.n_elem; ++jj) {
+//             int i = static_cast<int>(indices(jj));
+//             r_old = Rcache.row(i);
+//             r_new = compute_residual_row(X.row(i), static_cast<int>(Y(i)), offset(i), param);
+//             
+//             arma::rowvec delta_r = r_new - r_old;
+//             arma::mat x_outer = X.row(i).t() * delta_r; // p x K
+//             arma::mat saga_update_direction = x_outer + grad_avg;
+//             
+//             // update cache and grad_avg
+//             grad_avg += x_outer / static_cast<double>(n);
+//             Rcache.row(i) = r_new;
+//             
+//             // step + prox
+//             arma::mat param_unprox = param - learning_rate * saga_update_direction;
+//             apply_proximal_step_native(param, param_unprox, learning_rate, reg_p, p, K, penalty, lam1, lam2, pos);
+//         }
+//         
+//         // compute KKT-ish violation (penalized rows)
+//         arma::mat grad_penalized = grad_avg.head_rows(reg_p);
+//         arma::mat violations;
+//         if (penalty == 1 && lam1 > 0.0) {
+//             violations = arma::max(arma::zeros(reg_p, K), arma::abs(grad_penalized) - lam1);
+//         } else {
+//             violations = arma::abs(grad_penalized);
+//         }
+//         double kkt_violation = (violations.n_elem > 0) ? violations.max() : 0.0;
+//         
+//         // parameter change checks (global + penalized)
+//         double diff_all = arma::abs(param - param_old).max();
+//         double diff_pen = (reg_p > 0) ? arma::abs(param.head_rows(reg_p) - param_old.head_rows(reg_p)).max() : diff_all;
+//         
+//         // Adaptive LR update and revert if necessary
+//         if (kkt_violation < (last_kkt_violation - tolerance * 0.1)) {
+//             // improving
+//             last_kkt_violation = kkt_violation;
+//             learning_rate = std::min(learning_rate * lr_increase_factor, max_lr);
+//             // do not reset consecutive_good here since we need both KKT and stability
+//         } else if (iter > 3) {
+//             // oscillating/worse, reduce LR and revert to previous epoch state
+//             double new_lr = std::max(learning_rate * lr_decrease_factor, 1e-16);
+//             if (verbose) Rcpp::Rcout << "Epoch " << iter << ": oscillation detected. LR decreased " << learning_rate << " -> " << new_lr << std::endl;
+//             learning_rate = new_lr;
+//             
+//             // revert params to previous epoch and recompute caches
+//             param = param_old;
+//             for (int ii = 0; ii < n; ++ii) {
+//                 Rcache.row(ii) = compute_residual_row(X.row(ii), static_cast<int>(Y(ii)), offset(ii), param);
+//             }
+//             grad_avg = (X.t() * Rcache) / static_cast<double>(n);
+//             
+//             // recompute baseline KKT
+//             arma::mat grad_pen_recomp = grad_avg.head_rows(reg_p);
+//             arma::mat viol_recomp;
+//             if (penalty == 1 && lam1 > 0.0) {
+//                 viol_recomp = arma::max(arma::zeros(reg_p, K), arma::abs(grad_pen_recomp) - lam1);
+//             } else {
+//                 viol_recomp = arma::abs(grad_pen_recomp);
+//             }
+//             last_kkt_violation = (viol_recomp.n_elem > 0) ? viol_recomp.max() : 0.0;
+//             
+//             // reset consecutive_good because we reverted
+//             consecutive_good = 0;
+//         }
+//         
+//         if (verbose && (iter % 5 == 0 || iter == 1)) {
+//             Rcpp::Rcout << "Iter " << iter << " | KKT: " << kkt_violation << " | diff_all: " << diff_all
+//                         << " | diff_pen: " << diff_pen << " | LR: " << learning_rate << " | consec_good: " << consecutive_good << std::endl;
+//         }
+//         
+//         // Stopping: require min_epochs, small KKT, small penalized change, and hold for patience_stop consecutive epochs
+//         bool small_enough = (kkt_violation < tolerance) && (diff_pen < tolerance);
+//         if (iter >= min_epochs && small_enough) {
+//             consecutive_good += 1;
+//         } else {
+//             consecutive_good = 0;
+//         }
+//         
+//         if (consecutive_good >= patience_stop) {
+//             converged = true;
+//             convergence_iter = iter;
+//             if (verbose) Rcpp::Rcout << "Converged at iteration " << iter << " (consecutive_good=" << consecutive_good << ")" << std::endl;
+//             break;
+//         }
+//         
+//         if (learning_rate < 1e-12) {
+//             if (verbose) Rcpp::Rcout << "Learning rate became too small. Stopping." << std::endl;
+//             break;
+//         }
+//         if (!param.is_finite()) {
+//             Rcpp::warning("Algorithm diverged with non-finite parameter values.");
+//             break;
+//         }
+//     } // end epoch loop
+//     
+//     
+//     return Rcpp::List::create(
+//         Rcpp::Named("Estimates") = param,
+//         Rcpp::Named("Converged") = converged,
+//         Rcpp::Named("Convergence Iteration") = convergence_iter
+//     );
+// }
+
