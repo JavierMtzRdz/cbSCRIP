@@ -7,11 +7,9 @@
 refit_cbSCRIP(object, ...)
 }
 \arguments{
-\item{object}{A fitted object of class}
+\item{object}{A fitted object of class \code{cbSCRIP.path}.}
 
 \item{...}{Additional arguments (currently unused).}
-
-\item{coeffs}{A character string specifying the type of coefficients to return.}
 }
 \value{
 An object of class \code{cbSCRIP.path}, where the \code{coefficients} list

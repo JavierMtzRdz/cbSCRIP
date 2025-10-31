@@ -21,7 +21,27 @@ MultinomLogistic <- function(X, Y, offset, K, reg_p, penalty, regul, transpose, 
     .Call(`_cbSCRIP_MultinomLogistic`, X, Y, offset, K, reg_p, penalty, regul, transpose, grp_id, etaG, grp, grpV, own_var, N_own_var, lam1, lam2, lam3, learning_rate, tolerance, niter_inner, maxit, ncores, save_history, verbose, param_start)
 }
 
-MultinomLogisticSAGA <- function(X, Y, offset, K, reg_p, penalty, regul, transpose, grp_id, etaG, grp, grpV, own_var, N_own_var, lam1, lam2, lam3, tolerance = 1e-6, lr_adj = 1.0, max_lr = 1e-03, maxit = 500L, ncores = 1L, verbose = FALSE, pos = FALSE, param_start = NULL) {
+MultinomLogisticSAGA <- function(X, Y, offset, K, reg_p, penalty, regul, transpose, grp_id, etaG, grp, grpV, own_var, N_own_var, lam1, lam2, lam3, tolerance = 1e-4, lr_adj = 1.0, max_lr = 1.0, maxit = 500L, ncores = 1L, verbose = FALSE, pos = FALSE, param_start = NULL) {
     .Call(`_cbSCRIP_MultinomLogisticSAGA`, X, Y, offset, K, reg_p, penalty, regul, transpose, grp_id, etaG, grp, grpV, own_var, N_own_var, lam1, lam2, lam3, tolerance, lr_adj, max_lr, maxit, ncores, verbose, pos, param_start)
+}
+
+AutoTunedMultinomSAGA <- function(X, Y, offset, K, reg_p, penalty, regul, transpose, grp_id, etaG, grp, grpV, own_var, N_own_var, lam1, lam2, lam3, tolerance = 1e-4, maxit = 500L, verbose = FALSE, pos = FALSE, param_start = NULL) {
+    .Call(`_cbSCRIP_AutoTunedMultinomSAGA`, X, Y, offset, K, reg_p, penalty, regul, transpose, grp_id, etaG, grp, grpV, own_var, N_own_var, lam1, lam2, lam3, tolerance, maxit, verbose, pos, param_start)
+}
+
+MultinomLogisticCCD <- function(X, Y, offset, K, penalty = 1L, lam1 = 0.0, lam2 = 0.0, tolerance = 1e-5, maxit = 500L, lr_adj = 1.0, verbose = FALSE, pos = FALSE, param_start = NULL) {
+    .Call(`_cbSCRIP_MultinomLogisticCCD`, X, Y, offset, K, penalty, lam1, lam2, tolerance, maxit, lr_adj, verbose, pos, param_start)
+}
+
+MultinomLogisticSAGAN <- function(X, Y, offset, K, reg_p, penalty = 1L, lam1 = 0.0, lam2 = 0.0, tolerance = 1e-4, lr_adj = 1.0, max_lr = 1.0, maxit = 500L, verbose = FALSE, pos = FALSE, param_start = NULL) {
+    .Call(`_cbSCRIP_MultinomLogisticSAGAN`, X, Y, offset, K, reg_p, penalty, lam1, lam2, tolerance, lr_adj, max_lr, maxit, verbose, pos, param_start)
+}
+
+MultinomLogisticSVRG_Native <- function(X, Y, offset, K, reg_p, penalty = 1L, lam1 = 0.0, lam2 = 0.0, tolerance = 1e-4, learning_rate = 1e-2, maxit = 100L, verbose = FALSE, pos = FALSE, param_start = NULL) {
+    .Call(`_cbSCRIP_MultinomLogisticSVRG_Native`, X, Y, offset, K, reg_p, penalty, lam1, lam2, tolerance, learning_rate, maxit, verbose, pos, param_start)
+}
+
+MultinomLogisticSAGA_Native <- function(X, Y, offset, K, reg_p, penalty = 1L, lam1 = 0.0, lam2 = 0.0, tolerance = 1e-4, lr_adj = 1.0, max_lr = 1.0, maxit = 500L, verbose = FALSE, pos = FALSE, param_start = NULL) {
+    .Call(`_cbSCRIP_MultinomLogisticSAGA_Native`, X, Y, offset, K, reg_p, penalty, lam1, lam2, tolerance, lr_adj, max_lr, maxit, verbose, pos, param_start)
 }
 

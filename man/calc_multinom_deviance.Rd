@@ -20,3 +20,4 @@ The multinomial deviance value.
 \description{
 Calculate Multinomial Deviance for a Fitted Case-Base Model
 }
+\keyword{internal}
