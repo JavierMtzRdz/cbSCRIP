@@ -29,6 +29,7 @@ oneCSlasso <- function(data, cause, lambdavec, var_time = "ftime",
     y <- survival::Surv(data[[var_time]], data[[var_status]] == cause)
     
     glmnet.res <- glmnet::glmnet(x = X, y = y, alpha = 0.5, standardize = FALSE,
+                                 nfold = 5, 
                                  lambda = lambdavec,
                                  family = "cox", ...)
     
