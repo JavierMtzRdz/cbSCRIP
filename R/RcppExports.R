@@ -5,11 +5,15 @@ scalar_scad_prox <- function(val, lambda, a = 3.7) {
     .Call(`_cbSCRIP_scalar_scad_prox`, val, lambda, a)
 }
 
-MultinomLogisticCCD <- function(X, Y, offset, K, penalty = 1L, lam1 = 0.0, lam2 = 0.0, tolerance = 1e-5, maxit = 100L, lr_adj = 1.0, verbose = FALSE, pos = FALSE, param_start = NULL) {
-    .Call(`_cbSCRIP_MultinomLogisticCCD`, X, Y, offset, K, penalty, lam1, lam2, tolerance, maxit, lr_adj, verbose, pos, param_start)
+MultinomLogisticCCD <- function(X, Y, offset, K, reg_p, penalty = 1L, lam1 = 0.0, lam2 = 0.0, tolerance = 1e-7, maxit = 1000L, lr_adj = 1.0, verbose = FALSE, pos = FALSE, param_start = NULL) {
+    .Call(`_cbSCRIP_MultinomLogisticCCD`, X, Y, offset, K, reg_p, penalty, lam1, lam2, tolerance, maxit, lr_adj, verbose, pos, param_start)
 }
 
 MultinomLogisticSAGA_Native <- function(X, Y, offset, K, reg_p, penalty = 1L, lam1 = 0.0, lam2 = 0.0, tolerance = 1e-4, lr_adj = 1.0, max_lr = 1.0, maxit = 500L, verbose = FALSE, pos = FALSE, param_start = NULL) {
     .Call(`_cbSCRIP_MultinomLogisticSAGA_Native`, X, Y, offset, K, reg_p, penalty, lam1, lam2, tolerance, lr_adj, max_lr, maxit, verbose, pos, param_start)
+}
+
+MultinomLogisticSVRG <- function(X, Y, offset, K, reg_p, penalty = 1L, lam1 = 0.0, lam2 = 0.0, update_prob = -1.0, tolerance = 1e-4, lr_adj = 1.0, max_lr = 1.0, maxit = 500L, verbose = FALSE, pos = FALSE, param_start = NULL) {
+    .Call(`_cbSCRIP_MultinomLogisticSVRG`, X, Y, offset, K, reg_p, penalty, lam1, lam2, update_prob, tolerance, lr_adj, max_lr, maxit, verbose, pos, param_start)
 }
 
