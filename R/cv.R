@@ -106,7 +106,7 @@ find_lambda_max <- function(cb_data, n_unpenalized, alpha) {
     
     # Standardize the original covariates
     center <- colMeans(penalized_covs_raw, na.rm = TRUE)
-    scale <- apply(penalized_covs_raw, 2, stats::sd, na.rm = TRUE)
+    scale <- apply(penalized_covs_raw, 2, stats::sd, na.rm = TRUE) * sqrt((n - 1) / n)
     
     # Check for zero variance and replace scale with 1 to avoid NaN/Inf
     zero_var_idx <- which(scale < 1e-10)
@@ -117,29 +117,10 @@ find_lambda_max <- function(cb_data, n_unpenalized, alpha) {
     
     penalized_covs_scaled <- scale(penalized_covs_raw, center = center, scale = scale)
     
-    # Build the full design matrix using model.matrix, exactly like the wrapper
-    design_data <- data.frame(penalized_covs_scaled,
-                              time = log(cb_data$time))
-    X_intermediate <- stats::model.matrix(~., data = design_data)
-    
-    # Re-order to match wrapper: Intercept column goes last
-    X_full_design <- cbind(X_intermediate[, -1, drop = FALSE], X_intermediate[, 1, drop = FALSE])
-    colnames(X_full_design)[ncol(X_full_design)] <- "(Intercept)" # Rename intercept column
-    
     
     # Calculate Gradient for PENALIZED Variables
     
-    total_predictors <- ncol(X_full_design)
-    n_penalized <- total_predictors - n_unpenalized
-    
-    if (n_penalized <= 0) {
-        cli::cli_warn("No variables are penalized based on n_unpenalized = {n_unpenalized}. lambda_max is 0.")
-        return(0)
-    }
-    
-    # The penalized variables are the FIRST n_penalized columns of X_full_design
-    penalized_idx <- 1:n_penalized
-    X_penalized <- X_full_design[, penalized_idx, drop = FALSE]
+    X_penalized <- penalized_covs_scaled
     
     # Gradient = X_penalized^T * Residuals
     # We only need the gradient w.r.t the K_params (non-baseline) parameter sets
@@ -152,7 +133,6 @@ find_lambda_max <- function(cb_data, n_unpenalized, alpha) {
     max_abs_grad <- max(abs(Gradient_matrix))
     
     # Calculate final lambda_max using the standard formula
-    # Note: glmnet uses n=nrow(X), which matches 'n' here.
     lambda_max <- max_abs_grad / (alpha * n)
     
     cli::cli_alert_success("Calculated lambda_max: {round(lambda_max, 4)}")
