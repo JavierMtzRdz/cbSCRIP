@@ -186,19 +186,6 @@ Rcpp::List MultinomLogisticCCD(
           double h_jk = H(j, k);
 
           // Newton step on the quadratic model:
-          // Q(z) approx f(x) + g*z + 0.5*h*z^2
-          // We want to minimize Q(z) + Penalty(x+z)
-          // The gradient 'grad_jk' is at param_old.
-          // As we update param_inner, the gradient *should* change, but in CD
-          // with fixed Hessian/Grad from outer loop, we typically update the
-          // 'residual' or 'grad' effectively. However, the standard "glmnet"
-          // style uses the fixed gradient from the outer loop and only updates
-          // the coordinate. Wait, if we don't update Grad, we are just
-          // minimizing the SAME quadratic approximation repeatedly, which means
-          // we just jump to the minimum of that quadratic. One pass is enough
-          // if variables are independent. But they are not. To do CD correctly
-          // on the quadratic approximation: grad_current = grad_initial + H *
-          // (beta_current - beta_initial) This is what we need to track.
 
           double current_grad_jk =
               grad_jk + h_jk * (beta_old_jk - param_old(j, k));
@@ -255,7 +242,7 @@ Rcpp::List MultinomLogisticCCD(
 
     double current_total_obj = obj_old + pen_old;
 
-    for (int ls = 0; ls < 20; ++ls) {
+    for (int ls = 0; ls < 50; ++ls) {
       arma::mat param_proposal = param_old + step_size * direction;
 
       // Recompute objective
@@ -269,8 +256,7 @@ Rcpp::List MultinomLogisticCCD(
                        0.5 * lam2 * arma::accu(arma::square(param_proposal));
       }
 
-      if (obj_proposal + pen_proposal <=
-          current_total_obj + 1e-5) { // Allow tiny increase for numerical noise
+      if (obj_proposal + pen_proposal <= current_total_obj) {
         param = param_proposal;
         P = P_proposal;
         current_obj = obj_proposal;
@@ -284,11 +270,12 @@ Rcpp::List MultinomLogisticCCD(
     if (!step_accepted) {
       // If line search fails, we might be at a minimum or stuck.
       // Take a very small step or stop.
+      // If line search fails, we might be at a minimum or stuck.
       if (verbose)
         Rcpp::Rcout << "Line search failed at iter " << iter << std::endl;
-      // Keep old param, but maybe we converged?
-      // If the step is tiny, we are done.
-      if (arma::norm(direction, "fro") < tolerance) {
+
+      // If the step is small enough, we accept it as converged
+      if (arma::norm(direction, "fro") < tolerance * 10.0) {
         converged = true;
         break;
       }
