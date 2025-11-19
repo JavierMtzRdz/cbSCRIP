@@ -256,7 +256,7 @@ Rcpp::List MultinomLogisticCCD(
                        0.5 * lam2 * arma::accu(arma::square(param_proposal));
       }
 
-      if (obj_proposal + pen_proposal <= current_total_obj) {
+      if (obj_proposal + pen_proposal <= current_total_obj + c * step_size) {
         param = param_proposal;
         P = P_proposal;
         current_obj = obj_proposal;
