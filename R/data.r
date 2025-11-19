@@ -263,9 +263,10 @@ gen_data <- function(n = 400, p = 300,
                      num_true = 20, setting = 1,
                      iter = runif(1, 0, 9e5), sims = NULL) {
     
-    cli::cli_alert_info("Setting: {setting} | Iteration {iter}/{sims} | p = {p} | k = {num_true}")
     set.seed(iter)
-    set.seed(sample.int(5))
+    seed <- sample.int(5)
+    set.seed(seed)
+    cli::cli_alert_info("Setting: {setting} | Iteration {iter}/{sims} | seed = {seed} | p = {p} | k = {num_true}")
     
     beta1 <- rep(0, p)
     beta2 <- rep(0, p)
