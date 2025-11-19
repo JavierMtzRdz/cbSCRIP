@@ -264,7 +264,7 @@ gen_data <- function(n = 400, p = 300,
                      iter = runif(1, 0, 9e5), sims = NULL) {
     
     set.seed(iter)
-    seed <- sample.int(5)
+    seed <- as.integer(paste(sample.int(9, 5, replace = TRUE), collapse = ""))
     set.seed(seed)
     cli::cli_alert_info("Setting: {setting} | Iteration {iter}/{sims} | seed = {seed} | p = {p} | k = {num_true}")
     
