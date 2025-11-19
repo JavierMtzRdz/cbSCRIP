@@ -63,28 +63,7 @@ double compute_obj_and_probs(const arma::mat &X, const arma::vec &Y,
   double obj = 0.0;
 
   // Linear predictor: Eta = X * param
-  // Optimized: Use active set if provided
-  arma::mat Eta(n, K, arma::fill::zeros);
-
-  if (active_set.empty()) {
-    // If active set is empty but param is not (should not happen if logic is
-    // correct), or if we want to force full update. But here we assume
-    // active_set covers all non-zeros. If active_set is empty, Eta remains 0.
-  } else {
-    for (int j : active_set) {
-      // Eta += X.col(j) * param.row(j)
-      // param.row(j) is 1 x K
-      // X.col(j) is n x 1
-      // We add X.col(j) * param(j, k) to Eta.col(k)
-      arma::vec xj = X.col(j);
-      for (int k = 0; k < K; ++k) {
-        double val = param(j, k);
-        if (val != 0.0) {
-          Eta.col(k) += xj * val;
-        }
-      }
-    }
-  }
+  arma::mat Eta = X * param; // n x K
 
   // Add offset
   Eta.each_col() += offset;
