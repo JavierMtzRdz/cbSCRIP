@@ -71,7 +71,6 @@ plot.cbSCRIP.cv <- function(x, ...) {
 plot.cbSCRIP.path <- function(x, plot_intercept = FALSE, ...) {
     
     # Wrangle the list of coefficient matrices into a long-format tibble
-    x$lambdagrid
     plot_data <- purrr::imap_dfr(x$coefficients, ~{
         .x |>
             as.data.frame() |>

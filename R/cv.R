@@ -334,13 +334,14 @@ cv_cbSCRIP <- function(formula, data, regularization = 'elastic-net',
     n_event_types <- length(all_event_levels)
     
     
+    old_plan <- future::plan()
     if (ncores > 1) {
         future::plan(future::multisession, workers = ncores)
     } else {
         future::plan(future::sequential)
     }
     
-    on.exit(future::plan(future::sequential), add = TRUE)
+    on.exit(future::plan(old_plan), add = TRUE)
     
     lambdagrid <- create_lambda_grid(cb_data = cb_data,
                                      lambda = lambda,
