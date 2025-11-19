@@ -173,16 +173,37 @@ Rcpp::List MultinomLogisticCCD(
     int inner_maxit = 100; // Usually converges very fast
     double inner_tol = 1e-5;
 
+    // We need a working copy of param for the inner loop
+    arma::mat param_inner = param;
+
     for (int inner = 0; inner < inner_maxit; ++inner) {
       double max_inner_diff = 0.0;
 
       for (int j : active_set) {
         for (int k = 0; k < K; ++k) {
-          double beta_old_jk = param(j, k);
+          double beta_old_jk = param_inner(j, k);
           double grad_jk = Grad(j, k);
           double h_jk = H(j, k);
 
-          double z = beta_old_jk - grad_jk / h_jk;
+          // Newton step on the quadratic model:
+          // Q(z) approx f(x) + g*z + 0.5*h*z^2
+          // We want to minimize Q(z) + Penalty(x+z)
+          // The gradient 'grad_jk' is at param_old.
+          // As we update param_inner, the gradient *should* change, but in CD
+          // with fixed Hessian/Grad from outer loop, we typically update the
+          // 'residual' or 'grad' effectively. However, the standard "glmnet"
+          // style uses the fixed gradient from the outer loop and only updates
+          // the coordinate. Wait, if we don't update Grad, we are just
+          // minimizing the SAME quadratic approximation repeatedly, which means
+          // we just jump to the minimum of that quadratic. One pass is enough
+          // if variables are independent. But they are not. To do CD correctly
+          // on the quadratic approximation: grad_current = grad_initial + H *
+          // (beta_current - beta_initial) This is what we need to track.
+
+          double current_grad_jk =
+              grad_jk + h_jk * (beta_old_jk - param_old(j, k));
+
+          double z = beta_old_jk - current_grad_jk / h_jk;
           double beta_new_jk = 0.0;
 
           if (penalty == 1) { // Elastic Net
@@ -203,10 +224,7 @@ Rcpp::List MultinomLogisticCCD(
             beta_new_jk = 0.0;
 
           if (std::abs(beta_new_jk - beta_old_jk) > 1e-10) {
-            // Update param
-            param(j, k) = beta_new_jk;
-            // Update Gradient efficiently
-            Grad(j, k) += h_jk * (beta_new_jk - beta_old_jk);
+            param_inner(j, k) = beta_new_jk;
             max_inner_diff =
                 std::max(max_inner_diff, std::abs(beta_new_jk - beta_old_jk));
           }
@@ -217,22 +235,79 @@ Rcpp::List MultinomLogisticCCD(
         break;
     }
 
-    // 3. Check Convergence
-    double new_obj = compute_obj_and_probs(X, Y, offset, param, P, K);
+    // 3. Backtracking Line Search
+    arma::mat direction = param_inner - param_old;
+    double step_size = 1.0;
+    double alpha = 0.5; // Backtracking parameter
+    double c = 1e-4;    // Sufficient decrease parameter
+    bool step_accepted = false;
 
-    // Add penalty to objective for check
-    double pen_val = 0.0;
+    // Compute initial penalty value
+    double pen_old = 0.0;
     if (penalty == 1) {
-      double l1 = arma::accu(arma::abs(param));
-      double l2 = arma::accu(arma::square(param));
-      pen_val = lam1 * l1 + 0.5 * lam2 * l2;
+      pen_old = lam1 * arma::accu(arma::abs(param_old)) +
+                0.5 * lam2 * arma::accu(arma::square(param_old));
     }
 
+    // We want f(new) <= f(old) + c * step * grad^T * dir (Armijo)
+    // But for proximal gradient, we just check descent on the composite
+    // objective. Simple backtracking: ensure objective decreases.
+
+    double current_total_obj = obj_old + pen_old;
+
+    for (int ls = 0; ls < 20; ++ls) {
+      arma::mat param_proposal = param_old + step_size * direction;
+
+      // Recompute objective
+      arma::mat P_proposal(n, K);
+      double obj_proposal =
+          compute_obj_and_probs(X, Y, offset, param_proposal, P_proposal, K);
+
+      double pen_proposal = 0.0;
+      if (penalty == 1) {
+        pen_proposal = lam1 * arma::accu(arma::abs(param_proposal)) +
+                       0.5 * lam2 * arma::accu(arma::square(param_proposal));
+      }
+
+      if (obj_proposal + pen_proposal <=
+          current_total_obj + 1e-5) { // Allow tiny increase for numerical noise
+        param = param_proposal;
+        P = P_proposal;
+        current_obj = obj_proposal;
+        step_accepted = true;
+        break;
+      }
+
+      step_size *= alpha;
+    }
+
+    if (!step_accepted) {
+      // If line search fails, we might be at a minimum or stuck.
+      // Take a very small step or stop.
+      if (verbose)
+        Rcpp::Rcout << "Line search failed at iter " << iter << std::endl;
+      // Keep old param, but maybe we converged?
+      // If the step is tiny, we are done.
+      if (arma::norm(direction, "fro") < tolerance) {
+        converged = true;
+        break;
+      }
+      // Otherwise, just accept the small step to try to move? No, unsafe.
+      // Break to avoid divergence.
+      break;
+    }
+
+    // 4. Check Convergence
     double diff = arma::norm(param - param_old, "fro") /
                   (1.0 + arma::norm(param_old, "fro"));
 
     if (verbose) {
-      Rcpp::Rcout << "Iter " << iter << " | Obj: " << new_obj + pen_val
+      double pen_val = 0.0;
+      if (penalty == 1) {
+        pen_val = lam1 * arma::accu(arma::abs(param)) +
+                  0.5 * lam2 * arma::accu(arma::square(param));
+      }
+      Rcpp::Rcout << "Iter " << iter << " | Obj: " << current_obj + pen_val
                   << " | Rel Change: " << diff << std::endl;
     }
 
