@@ -10,6 +10,7 @@
 prepare_penalty_params <- function(regularization, lambda, alpha) {
     # Ensure regularization is a character string
     if (!is.character(regularization) || length(regularization) != 1) {
+        cli::cli_abort("Argument 'regularization' must be a single string, like 'elastic-net' or 'SCAD'.")
     }
     switch(
         regularization,
@@ -197,107 +198,64 @@ create_cb_data <- function(formula, data, ratio = 20, ratio_event = "all") {
 #' @param ... Additional arguments.
 #' @return A list of model fits.
 #' @keywords internal
-fit_cb_path_internal <- function(cb_data,
-                                 lambdas,
-                                 regularization,
-                                 alpha,
-                                 n_unpenalized,
-                                 fit_fun,
-                                 param_start = NULL,
-                                 standardize = TRUE,
-                                 all_event_levels = NULL,
-                                 ...) {
-    
-    # 1. Prepare Data (Once)
-    if (is.null(all_event_levels)) all_event_levels <- sort(unique(cb_data$event))
-    Y_factor <- factor(cb_data$event, levels = all_event_levels)
-    
+#' Standardize Case-Base Data
+#'
+#' Centers and scales the covariates in a case-base dataset.
+#'
+#' @param cb_data A case-base data list.
+#' @return A list containing the standardized `cb_data` and the `scaler` object.
+#' @export
+standardize_cb_data <- function(cb_data) {
     penalized_covs <- as.matrix(cb_data$covariates)
     p_covs <- ncol(penalized_covs)
     
-    # Standardization
-    scaler <- list(center = rep(0, p_covs), scale = rep(1, p_covs))
-    names(scaler$center) <- colnames(penalized_covs)
-    names(scaler$scale) <- colnames(penalized_covs)
+    center <- colMeans(penalized_covs, na.rm = TRUE)
+    n <- nrow(penalized_covs)
+    scale <- apply(penalized_covs, 2, sd, na.rm = TRUE) * sqrt((n - 1) / n)
     
-    if (standardize) {
-        center <- colMeans(penalized_covs, na.rm = TRUE)
-        n <- nrow(penalized_covs)
-        scale <- apply(penalized_covs, 2, sd, na.rm = TRUE) * sqrt((n - 1) / n)
-        
-        zero_var <- scale < .Machine$double.eps
-        if (any(zero_var)) {
-            scale[zero_var] <- 1
-        }
-        
-        penalized_covs <- scale(penalized_covs, center = center, scale = scale)
-        scaler <- list(center = center, scale = scale)
-        
-        # Scale param_start if provided
-        if(!is.null(param_start)){
-            beta_raw <- param_start[1:p_covs, , drop = FALSE]
-            intercept_raw <- param_start[p_covs + 2, , drop = FALSE] 
-            
-            beta_scaled <- beta_raw * scaler$scale
-            intercept_adj <- colSums(beta_raw * scaler$center)
-            intercept_scaled <- intercept_raw + intercept_adj
-            
-            param_start[1:p_covs, ] <- beta_scaled
-            param_start[p_covs + 2, ] <- intercept_scaled
-        }
+    zero_var <- scale < .Machine$double.eps
+    if (any(zero_var)) {
+        scale[zero_var] <- 1
     }
     
-    # Design Matrix
-    X <- cbind(penalized_covs, "log(time)" = log(cb_data$time), "(Intercept)" = 1)
+    penalized_covs_scaled <- scale(penalized_covs, center = center, scale = scale)
     
-    # 2. Loop over Lambdas
-    path_fits <- vector("list", length(lambdas))
-    current_param <- param_start
+    cb_data$covariates <- penalized_covs_scaled
     
-    for (i in seq_along(lambdas)) {
-        penalty_params <- prepare_penalty_params(regularization, lambdas[i], alpha)
-        
-        opt_args <- list(X = X, Y = Y_factor, offset = cb_data$offset,
-                         N_covariates = n_unpenalized, 
-                         regularization = regularization,
-                         lambda1 = penalty_params$lambda1,
-                         lambda2 = penalty_params$lambda2,
-                         param_start = current_param,
-                         ...)
-        
-        fit <- do.call(fit_fun, opt_args)
-        
-        # Store raw (scaled) coefficients for warm start
-        current_param <- fit$coefficients
-        
-        # 3. Un-scale Coefficients for Output
-        if (standardize && !is.null(fit$coefficients)) {
-            coefs_scaled <- fit$coefficients
-            
-            beta_covs_scaled <- coefs_scaled[1:p_covs, , drop = FALSE]
-            time_coef <- coefs_scaled[p_covs + 1, , drop = FALSE]
-            intercept_scaled <- coefs_scaled[p_covs + 2, , drop = FALSE]
-            
-            beta_covs_orig <- beta_covs_scaled / scaler$scale
-            intercept_adj <- colSums(beta_covs_scaled * (scaler$center / scaler$scale))
-            intercept_orig <- intercept_scaled - intercept_adj
-            
-            coefs_orig <- rbind(beta_covs_orig, time_coef, intercept_orig)
-            rownames(coefs_orig) <- c(colnames(cb_data$covariates), "log(time)", "(Intercept)")
-            
-            fit$coefficients <- coefs_orig
-        }
-        
-        fit <- c(fit, 
-                 scaler = list(scaler),
-                 lambda = lambdas[i],
-                 alpha = penalty_params$alpha)
-        class(fit) <- "cbSCRIP"
-        
-        path_fits[[i]] <- fit
-    }
+    scaler <- list(center = center, scale = scale)
     
-    return(path_fits)
+    return(list(cb_data = cb_data, scaler = scaler))
+}
+
+#' Unstandardize Coefficients
+#'
+#' Transforms coefficients from the standardized scale back to the original scale.
+#'
+#' @param coefficients A matrix or vector of standardized coefficients.
+#' @param scaler A list with `center` and `scale` components.
+#' @param p_covs Number of penalized covariates.
+#' @param col_names Original column names for the covariates.
+#' @return The unstandardized coefficients.
+#' @export
+unstandardize_coefficients <- function(coefficients, scaler, col_names) {
+    if (is.null(coefficients)) return(NULL)
+    
+    p_covs <- length(scaler$scale)
+    
+    coefs_scaled <- coefficients
+    
+    beta_covs_scaled <- coefs_scaled[1:p_covs, , drop = FALSE]
+    time_coef <- coefs_scaled[p_covs + 1, , drop = FALSE]
+    intercept_scaled <- coefs_scaled[p_covs + 2, , drop = FALSE]
+    
+    beta_covs_orig <- beta_covs_scaled / scaler$scale
+    intercept_adj <- colSums(beta_covs_scaled * (scaler$center / scaler$scale))
+    intercept_orig <- intercept_scaled - intercept_adj
+    
+    coefs_orig <- rbind(beta_covs_orig, time_coef, intercept_orig)
+    rownames(coefs_orig) <- c(col_names, "log(time)", "(Intercept)")
+    
+    return(coefs_orig)
 }
 
 #' Fit a Penalized Multinomial Model on Case-Base Data
@@ -345,19 +303,11 @@ fit_cb_model <- function(cb_data,
     names(scaler$scale) <- colnames(penalized_covs)
     
     if (standardize) {
-        #  center and scale
-        center <- colMeans(penalized_covs, na.rm = TRUE)
-        n <- nrow(penalized_covs)
-        scale <- apply(penalized_covs, 2, sd, na.rm = TRUE) * sqrt((n - 1) / n)
-        
-        zero_var <- scale < .Machine$double.eps
-        if (any(zero_var)) {
-            cli::cli_warn("Some covariates have zero variance and were not scaled.")
-            scale[zero_var] <- 1
-        }
-        
-        penalized_covs <- scale(penalized_covs, center = center, scale = scale)
-        scaler <- list(center = center, scale = scale)
+        # Use helper function to standardize
+        std_res <- standardize_cb_data(cb_data)
+        cb_data <- std_res$cb_data # Use standardized data
+        scaler <- std_res$scaler
+        penalized_covs <- cb_data$covariates # Update local reference
         
         if(!is.null(param_start)){
             
@@ -402,32 +352,7 @@ fit_cb_model <- function(cb_data,
     
     # Re-scaling
     if (standardize && !is.null(fit$coefficients)) {
-        coefs_scaled <- fit$coefficients
-        
-        # Extract components from scaled fit
-        beta_covs_scaled <- coefs_scaled[1:p_covs, , drop = FALSE]
-        time_coef <- coefs_scaled[p_covs + 1, , drop = FALSE]
-        intercept_scaled <- coefs_scaled[p_covs + 2, , drop = FALSE]
-        
-        # Re-scale covariate coefficients
-        # beta_raw = beta_scaled / scale
-        beta_covs_orig <- beta_covs_scaled / scaler$scale
-        
-        # Adjust intercept
-        # intercept_raw = intercept_scaled - sum(beta_raw * center)
-        # intercept_raw = intercept_scaled - sum((beta_scaled / scale) * center)
-        intercept_adj <- colSums(beta_covs_scaled * (scaler$center / scaler$scale))
-        intercept_orig <- intercept_scaled - intercept_adj
-        
-        # Reconstruct coefficient matrix
-        coefs_orig <- rbind(beta_covs_orig, time_coef, intercept_orig)
-        rownames(coefs_orig) <- c(
-            colnames(cb_data$covariates), 
-            "log(time)", 
-            "(Intercept)"
-        )
-        
-        fit$coefficients <- coefs_orig
+        fit$coefficients <- unstandardize_coefficients(fit$coefficients, scaler, colnames(cb_data$covariates))
     }
     
     call <-  match.call()

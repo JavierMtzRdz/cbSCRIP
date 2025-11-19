@@ -104,18 +104,11 @@ find_lambda_max <- function(cb_data, n_unpenalized, alpha) {
     
     # Build the Standardized Design Matrix
     
-    # Standardize the original covariates
-    center <- colMeans(penalized_covs_raw, na.rm = TRUE)
-    scale <- apply(penalized_covs_raw, 2, stats::sd, na.rm = TRUE) * sqrt((n - 1) / n)
+    # Build the Standardized Design Matrix
     
-    # Check for zero variance and replace scale with 1 to avoid NaN/Inf
-    zero_var_idx <- which(scale < 1e-10)
-    if (length(zero_var_idx) > 0) {
-        cli::cli_warn("Some covariates have near-zero variance and were not scaled.")
-        scale[zero_var_idx] <- 1
-    }
-    
-    penalized_covs_scaled <- scale(penalized_covs_raw, center = center, scale = scale)
+    # Standardize the original covariates using helper
+    std_res <- standardize_cb_data(cb_data)
+    penalized_covs_scaled <- std_res$cb_data$covariates
     
     
     # Calculate Gradient for PENALIZED Variables
@@ -231,6 +224,11 @@ run_cv_fold <- function(fold_indices, cb_data,
     train_cv_data <- lapply(cb_data, function(x) if(is.matrix(x)) x[-fold_indices, , drop = FALSE] else x[-fold_indices])
     test_cv_data  <- lapply(cb_data, function(x) if(is.matrix(x)) x[fold_indices, , drop = FALSE] else x[fold_indices])
     
+    # Standardize training data once
+    std_res <- standardize_cb_data(train_cv_data)
+    train_cv_data_scaled <- std_res$cb_data
+    scaler <- std_res$scaler
+    
     # Initialize for loop
     deviances <- numeric(length(lambdagrid))
     non_zero <- numeric(length(lambdagrid))
@@ -239,18 +237,26 @@ run_cv_fold <- function(fold_indices, cb_data,
     
     for (i in seq_along(lambdagrid)) {
         
-        opt_args <- list(train_cv_data,
+        opt_args <- list(train_cv_data_scaled,
                          lambda = lambdagrid[i],
                          all_event_levels = all_event_levels,
                          regularization = regularization,
                          alpha = alpha,
-                         param_start = param_start, # Pass warm start
+                         param_start = param_start, # Pass warm start (scaled)
                          n_unpenalized = n_unpenalized,
+                         standardize = FALSE, # Data is already standardized
                          ...)
         
         # if(is.null(opt_args$lr_adj)) opt_args$lr_adj <- 100
         
         model_info <- do.call(fit_cb_model, opt_args)
+        
+        # Store scaled coefficients for next iteration
+        if(warm_start) param_start <- model_info$coefficients
+        
+        # Unstandardize coefficients for deviance calculation
+        coefs_orig <- unstandardize_coefficients(model_info$coefficients, scaler, colnames(train_cv_data$covariates))
+        model_info$coefficients <- coefs_orig
         
         # Calculate deviance on the original, unscaled test fold
         deviances[i] <- calc_multinom_deviance(
@@ -262,9 +268,6 @@ run_cv_fold <- function(fold_indices, cb_data,
         non_zero[i] <- sum(!same(rowSums(abs(model_info$coefficients)), 0))
         
         if (!is.null(update_f)) update_f()
-        
-        # Update the warm start for the next iteration
-        if(warm_start) param_start <- model_info$coefficients
     }
     
     return(list(deviances = deviances,
@@ -682,6 +685,11 @@ cbSCRIP <- function(formula, data, regularization = 'elastic-net',
         
         cli::cli_alert_info("Fitting model path for {nlambda} lambda values...")
         
+        # Standardize data once
+        std_res <- standardize_cb_data(cb_data)
+        cb_data_scaled <- std_res$cb_data
+        scaler <- std_res$scaler
+        
         path_fits <- vector("list", nlambda)
         
         param_start <- NULL #
@@ -690,18 +698,27 @@ cbSCRIP <- function(formula, data, regularization = 'elastic-net',
         for (i in seq_along(lambdagrid)) {
             
             model_info <- fit_cb_model(
-                cb_data = cb_data,
+                cb_data = cb_data_scaled,
                 lambda = lambdagrid[i],
                 regularization = regularization,
                 alpha = alpha,
                 n_unpenalized = n_unpenalized,
-                param_start = param_start, # Pass warm start
+                param_start = param_start, # Pass warm start (scaled)
+                standardize = FALSE, # Data is already standardized
                 ...
             )
-            path_fits[[i]] <- model_info
             
-            # Update the warm start for the next iteration
+            # Update the warm start for the next iteration (keep scaled)
             if(warm_start) param_start <- model_info$coefficients
+            
+            # Unstandardize coefficients for output
+            coefs_orig <- unstandardize_coefficients(model_info$coefficients, scaler, colnames(cb_data$covariates))
+            model_info$coefficients <- coefs_orig
+            
+            # Add scaler info to model object
+            model_info$scaler <- scaler
+            
+            path_fits[[i]] <- model_info
             
             cli::cli_progress_update()
         }
