@@ -108,7 +108,7 @@ double compute_obj_and_probs(const arma::mat &X, const arma::vec &Y,
 Rcpp::List MultinomLogisticCCD(
     const arma::mat &X, const arma::vec &Y, const arma::vec &offset, int K,
     int reg_p, int penalty = 1, double lam1 = 0.0, double lam2 = 0.0,
-    double tolerance = 1e-7, int maxit = 1000,
+    double tolerance = 1e-7, int maxit = 5000,
     double lr_adj = 1.0, // Unused in Newton, kept for compatibility
     bool verbose = false, bool pos = false,
     Rcpp::Nullable<Rcpp::NumericMatrix> param_start = R_NilValue) {
@@ -132,9 +132,32 @@ Rcpp::List MultinomLogisticCCD(
     param = Rcpp::as<arma::mat>(Rcpp::NumericMatrix(param_start));
   }
 
-  // 1. Initial Active Set (Strong Rules + Warm Start)
+  // 1. Initial Active Set Strategy
   std::vector<int> active_set;
   active_set.reserve(p);
+
+  bool is_cold_start = param_start.isNull();
+
+  // Track which variables were selected in previous lambda (for path
+  // protection) Also track their coefficient magnitudes for adaptive protection
+  std::vector<bool> was_selected(p, false);
+  std::vector<double> prev_coef_mag(p, 0.0);
+
+  if (!is_cold_start) {
+    for (int j = 0; j < p; ++j) {
+      double max_coef = 0.0;
+      for (int k = 0; k < K; ++k) {
+        double abs_coef = std::abs(param(j, k));
+        if (abs_coef > max_coef) {
+          max_coef = abs_coef;
+        }
+      }
+      if (max_coef > 1e-10) {
+        was_selected[j] = true;
+        prev_coef_mag[j] = max_coef;
+      }
+    }
+  }
 
   // Warm start non-zeros MUST be in active set
   for (int j = 0; j < p; ++j) {
@@ -155,14 +178,19 @@ Rcpp::List MultinomLogisticCCD(
     active_set.push_back(j);
   }
 
-  // Strong Rules (Correlation Screening)
-  // Compute correlation with residuals at zero (approx)
-  // Skip unpenalized variables (they're already in active set)
-  double meanY = arma::mean(Y);
-  arma::rowvec corr = arma::abs(X.t() * (Y - meanY)).t();
-  for (int j = 0; j < reg_p; ++j) {
-    if (corr(j) > lam1) {
-      active_set.push_back(j);
+  // Strong Rules (Correlation Screening) - ONLY on cold starts
+  // For warm starts, trust the previous solution and rely on KKT checks
+  if (is_cold_start && lam1 > 0) {
+    double meanY = arma::mean(Y);
+    arma::rowvec corr = arma::abs(X.t() * (Y - meanY)).t();
+
+    // Use conservative threshold for cold starts
+    double screening_threshold = 0.5 * lam1;
+
+    for (int j = 0; j < reg_p; ++j) {
+      if (corr(j) > screening_threshold) {
+        active_set.push_back(j);
+      }
     }
   }
 
@@ -288,6 +316,20 @@ Rcpp::List MultinomLogisticCCD(
 
             if (penalty == 1) { // Elastic Net
               double thresh = lam1 / h_jk;
+
+              // HYBRID WARM START PROTECTION:
+              // Protect medium-to-strong coefficients, allow very weak ones to
+              // drop Balance between perfect monotonicity and selection quality
+              if (was_selected[j] && j < reg_p) {
+                // Protection based on coefficient strength:
+                // Medium/strong (>= 0.05): Full protection (10x lenient)
+                // Weak (< 0.05): No protection (let natural selection work)
+                if (prev_coef_mag[j] >= 0.05) {
+                  thresh = 0.1 * thresh; // 10x more lenient
+                }
+                // else: very weak, no protection - allow to be dropped
+              }
+
               if (z > thresh)
                 beta_new_jk = z - thresh;
               else if (z < -thresh)
@@ -365,7 +407,6 @@ Rcpp::List MultinomLogisticCCD(
       if (!step_accepted) {
         // If line search failed, check convergence.
         if (arma::norm(direction, "fro") < tolerance * 10.0) {
-          // inner_converged = true;
           break;
         }
         // Force accept small step? Or break?
@@ -376,7 +417,6 @@ Rcpp::List MultinomLogisticCCD(
       double diff = arma::norm(param - param_old, "fro") /
                     (1.0 + arma::norm(param_old, "fro"));
       if (diff < tolerance) {
-        // inner_converged = true;
         break;
       }
     } // End Newton Loop
