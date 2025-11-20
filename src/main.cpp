@@ -324,7 +324,7 @@ Rcpp::List MultinomLogisticCCD(
                 // Protection based on coefficient strength:
                 // Medium/strong (>= 0.05): Full protection (10x lenient)
                 // Weak (< 0.05): No protection (let natural selection work)
-                if (prev_coef_mag[j] >= 0.05) {
+                if (prev_coef_mag[j] >= 0.06) {
                   thresh = 0.1 * thresh; // 10x more lenient
                 }
                 // else: very weak, no protection - allow to be dropped
