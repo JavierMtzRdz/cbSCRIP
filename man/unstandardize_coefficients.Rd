@@ -12,8 +12,6 @@ unstandardize_coefficients(coefficients, scaler, col_names)
 \item{scaler}{A list with \code{center} and \code{scale} components.}
 
 \item{col_names}{Original column names for the covariates.}
-
-\item{p_covs}{Number of penalized covariates.}
 }
 \value{
 The unstandardized coefficients.

@@ -5,16 +5,19 @@
 \title{Generate Competing Risks Survival Data for Simulation Studies}
 \usage{
 gen_data(
-  n = 400,
+  n_train = 300,
+  n_test = 100,
   p = 300,
   num_true = 20,
   setting = 1,
-  iter = runif(1, 0, 9e+05),
+  iter = stats::runif(1, 0, 9e+05),
   sims = NULL
 )
 }
 \arguments{
-\item{n}{Integer, total number of subjects to simulate.}
+\item{n_train}{Integer, number of subjects in training set.}
+
+\item{n_test}{Integer, number of subjects in test set.}
 
 \item{p}{Integer, total number of covariates.}
 
@@ -28,8 +31,8 @@ gen_data(
 }
 \value{
 A list containing:
-\item{train}{A data.frame for the training set (75\% of data).}
-\item{test}{A data.frame for the test set (25\% of data).}
+\item{train}{A data.frame for the training set (size n_train).}
+\item{test}{A data.frame for the test set (size n_test).}
 \item{beta1}{The true coefficient vector for cause 1.}
 \item{beta2}{The true coefficient vector for cause 2.}
 \item{call}{The function call.}

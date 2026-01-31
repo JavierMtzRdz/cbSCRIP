@@ -1,5 +1,7 @@
-#' @export
-same <- function (x, y, tolerance = .Machine$double.eps) {
+#' Check floating point equality
+#' @noRd
+#' @keywords internal
+same <- function(x, y, tolerance = .Machine$double.eps) {
     abs(x - y) < tolerance
 }
 
@@ -25,7 +27,7 @@ same <- function (x, y, tolerance = .Machine$double.eps) {
 mse_bias <- function(coef, true_coefs) {
     # Find the indices of coefficients the model *selected* (non-zero)
     indices <- which(coef != 0)
-    
+
     # Calculate MSE only for those selected coefficients
     mse <- mean((coef[indices] - true_coefs[indices])^2)
     return(mse)
@@ -60,26 +62,25 @@ mse_bias <- function(coef, true_coefs) {
 #'
 #' @export
 varsel_perc <- function(model_coef, true_coef, threshold = 1e-8) {
-    
     # Identify which variables the model selected (predicted positive)
     selected_vars <- which(abs(model_coef) > threshold)
-    
+
     # Identify which variables the model did not select (predicted negative)
     non_selected_vars <- which(abs(model_coef) <= threshold)
-    
+
     # Identify which variables are truly non-zero (actual positive)
     true_vars <- which(abs(true_coef) > threshold)
-    
+
     # Identify which variables are truly zero (actual negative)
     false_vars <- which(abs(true_coef) <= threshold)
-    
-    
+
+
     # Build the 2x2 confusion matrix
     TP <- sum(selected_vars %in% true_vars)
     FP <- sum(selected_vars %in% false_vars)
     TN <- sum(non_selected_vars %in% false_vars)
     FN <- sum(non_selected_vars %in% true_vars)
-    
+
     # Calculate Sensitivity (True Positive Rate)
     # Handle division by zero if there are no actual positive cases (TP + FN = 0)
     sens <- tryCatch(
@@ -88,7 +89,7 @@ varsel_perc <- function(model_coef, true_coef, threshold = 1e-8) {
         error = function(e) NaN
     )
     if (is.nan(sens)) sens <- 0 # Or NA, depending on desired behavior
-    
+
     # Calculate Specificity (True Negative Rate)
     # Handle division by zero if there are no actual negative cases (TN + FP = 0)
     spec <- tryCatch(
@@ -97,29 +98,36 @@ varsel_perc <- function(model_coef, true_coef, threshold = 1e-8) {
         error = function(e) NaN
     )
     if (is.nan(spec)) spec <- 0 # Or NA, depending on desired behavior
-    
+
     # Calculate Matthew's Correlation Coefficient (MCC)
     # This is a robust metric that is well-behaved even with class imbalance
-    
+
     # Pre-calculate the denominator components
     # Use as.numeric to avoid integer overflow issues
     sum_tp_fp <- as.numeric(TP + FP) # Total predicted positive
     sum_tp_fn <- as.numeric(TP + FN) # Total actual positive
     sum_tn_fp <- as.numeric(TN + FP) # Total actual negative
     sum_tn_fn <- as.numeric(TN + FN) # Total predicted negative
-    
+
     mcc_num <- (as.numeric(TP) * as.numeric(TN)) - (as.numeric(FP) * as.numeric(FN))
     mcc_den <- sqrt(sum_tp_fp * sum_tp_fn * sum_tn_fp * sum_tn_fn)
-    
+
     mcc <- if (mcc_den == 0) {
-        # If the denominator is zero, it means at least one of the 
+        # If the denominator is zero, it means at least one of the
         # row/column sums in the confusion matrix was zero.
         # By convention, MCC is 0 in this case (no correlation).
         0
     } else {
         mcc_num / mcc_den
     }
-    
+
+    # Calculate Correct Selection Rate (CSR)
+    # CSR = 1 if the model selected exactly the true variables (TP == Total True AND FP == 0)
+    # Otherwise CSR = 0
+    total_true_vars <- length(true_vars)
+
+    csr <- if (TP == total_true_vars && FP == 0) 1 else 0
+
     dat <- data.frame(
         TP = TP,
         TN = TN,
@@ -127,8 +135,9 @@ varsel_perc <- function(model_coef, true_coef, threshold = 1e-8) {
         FN = FN,
         Sensitivity = sens,
         Specificity = spec,
-        MCC = mcc
+        MCC = mcc,
+        CSR = csr
     )
-    
+
     return(dat)
 }

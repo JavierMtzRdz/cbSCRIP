@@ -1,15 +1,34 @@
-#' @importFrom Rcpp evalCpp
-
+#' Multinomial Logistic Regression with CCD
+#'
+#' Fits a multinomial logistic regression model using Coordinate Descent (CCD).
+#'
+#' @param X Input matrix.
+#' @param Y Response vector.
+#' @param offset Offset vector.
+#' @param N_covariates Number of covariates.
+#' @param regularization Regularization type.
+#' @param lambda1 Primary penalty parameter.
+#' @param lambda2 Secondary penalty parameter.
+#' @param lambda3 Tertiary penalty parameter.
+#' @param pos Positivity constraint.
+#' @param tolerance Convergence tolerance.
+#' @param maxit Maximum iterations.
+#' @param ncores Number of cores.
+#' @param group_id Group IDs.
+#' @param group_weights Group weights.
+#' @param groups Groups matrix.
+#' @param groups_var Groups variable matrix.
+#' @param own_variables Own variables.
+#' @param N_own_variables Number of own variables.
+#' @param param_start Starting parameters.
+#' @param verbose Verbosity.
+#' @param save_history Save history.
+#' @return A list with model results.
 #' @export
 MNlogisticCCD <- function(X, Y, offset, N_covariates,
-                          regularization = "l1", transpose = FALSE,
-                          lambda1, lambda2 = 0, lambda3 = 0,
-                          pos = FALSE, #  Positivity constraint
-                          tolerance = 1e-6,
-                          # niter_inner_mtplyr = 2,
-                          maxit = 1000, ncores = -1,
-                          lr_adj = 1,
-                          learning_rate = 1,
+                          regularization = "l1", lambda1, lambda2 = 0, lambda3 = 0,
+                          pos = FALSE, # Positivity constraint
+                          tolerance = 1e-6, maxit = 5000, ncores = -1,
                           group_id = NULL, group_weights = NULL, # etaG
                           groups = NULL, groups_var = NULL, # grp, grpV
                           own_variables = NULL, N_own_variables = NULL,
@@ -133,6 +152,35 @@ MNlogisticCCD <- function(X, Y, offset, N_covariates,
     ))
 }
 
+#' Multinomial Logistic Regression with SAGAN
+#'
+#' Fits a multinomial logistic regression model using SAGA Native (SAGAN).
+#'
+#' @param X Input matrix.
+#' @param Y Response vector.
+#' @param offset Offset vector.
+#' @param N_covariates Number of covariates.
+#' @param regularization Regularization type.
+#' @param transpose Transpose X.
+#' @param lambda1 Primary penalty parameter.
+#' @param lambda2 Secondary penalty parameter.
+#' @param lambda3 Tertiary penalty parameter.
+#' @param pos Positivity constraint.
+#' @param tolerance Convergence tolerance.
+#' @param maxit Maximum iterations.
+#' @param ncores Number of cores.
+#' @param lr_adj Learning rate adjustment.
+#' @param learning_rate Learning rate.
+#' @param group_id Group IDs.
+#' @param group_weights Group weights.
+#' @param groups Groups matrix.
+#' @param groups_var Groups variable matrix.
+#' @param own_variables Own variables.
+#' @param N_own_variables Number of own variables.
+#' @param param_start Starting parameters.
+#' @param verbose Verbosity.
+#' @param save_history Save history.
+#' @return A list with model results.
 #' @export
 MNlogisticSAGAN <- function(X, Y, offset, N_covariates,
                             regularization = "l1", transpose = FALSE,
@@ -266,6 +314,36 @@ MNlogisticSAGAN <- function(X, Y, offset, N_covariates,
     ))
 }
 
+#' Multinomial Logistic Regression with SVRG
+#'
+#' Fits a multinomial logistic regression model using Stochastic Variance Reduced Gradient (SVRG).
+#'
+#' @param X Input matrix.
+#' @param Y Response vector.
+#' @param offset Offset vector.
+#' @param N_covariates Number of covariates.
+#' @param regularization Regularization type.
+#' @param transpose Transpose X.
+#' @param lambda1 Primary penalty parameter.
+#' @param lambda2 Secondary penalty parameter.
+#' @param lambda3 Tertiary penalty parameter.
+#' @param pos Positivity constraint.
+#' @param tolerance Convergence tolerance.
+#' @param maxit Maximum iterations.
+#' @param ncores Number of cores.
+#' @param lr_adj Learning rate adjustment.
+#' @param learning_rate Learning rate.
+#' @param update_prob Update probability.
+#' @param group_id Group IDs.
+#' @param group_weights Group weights.
+#' @param groups Groups matrix.
+#' @param groups_var Groups variable matrix.
+#' @param own_variables Own variables.
+#' @param N_own_variables Number of own variables.
+#' @param param_start Starting parameters.
+#' @param verbose Verbosity.
+#' @param save_history Save history.
+#' @return A list with model results.
 #' @export
 MNlogisticSVRG <- function(X, Y, offset, N_covariates,
                            regularization = "l1", transpose = FALSE,
