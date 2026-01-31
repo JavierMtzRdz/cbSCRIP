@@ -213,6 +213,7 @@ run_cv_fold <- function(fold_indices, cb_data,
                         n_unpenalized = 2,
                         warm_start = TRUE,
                         update_f = NULL,
+                        optimizer = "CCD",
                         ...) {
     # Split data into training and validation folds
     train_cv_data <- lapply(cb_data, function(x) if (is.matrix(x)) x[-fold_indices, , drop = FALSE] else x[-fold_indices])
@@ -238,6 +239,7 @@ run_cv_fold <- function(fold_indices, cb_data,
             param_start = param_start, # Pass warm start (scaled)
             n_unpenalized = n_unpenalized,
             standardize = FALSE, # Data is already standardized
+            optimizer = optimizer,
             ...
         )
 
@@ -304,6 +306,7 @@ cv_cbSCRIP <- function(formula, data, regularization = "elastic-net",
                        lambda_max = NULL,
                        lambda.min.ratio = NULL,
                        warm_start = TRUE,
+                       optimizer = c("CCD", "SAGA", "SVRG"),
                        ...) {
     if (is.null(cb_data)) {
         cb_data <- create_cb_data(formula, data,
@@ -358,6 +361,7 @@ cv_cbSCRIP <- function(formula, data, regularization = "elastic-net",
                     alpha = alpha,
                     all_event_levels = all_event_levels,
                     update_f = p,
+                    optimizer = optimizer,
                     ...
                 )
                 return(res)
@@ -403,6 +407,7 @@ cv_cbSCRIP <- function(formula, data, regularization = "elastic-net",
         lambda = lambda.min,
         alpha = alpha,
         n_unpenalized = n_unpenalized,
+        optimizer = optimizer,
         ...
     )
 
@@ -672,6 +677,7 @@ cbSCRIP <- function(formula, data, regularization = "elastic-net",
                     lambda.min.ratio = NULL,
                     warm_start = TRUE,
                     coeffs = c("adjusted", "original"),
+                    optimizer = c("CCD", "SAGA", "SVRG"),
                     ...) {
     coeffs <- rlang::arg_match(coeffs)
 
@@ -725,6 +731,7 @@ cbSCRIP <- function(formula, data, regularization = "elastic-net",
                 n_unpenalized = n_unpenalized,
                 param_start = param_start, # Pass warm start (scaled)
                 standardize = FALSE, # Data is already standardized
+                optimizer = optimizer,
                 ...
             )
 
@@ -774,6 +781,7 @@ cbSCRIP <- function(formula, data, regularization = "elastic-net",
             regularization = regularization,
             alpha = alpha,
             n_unpenalized = n_unpenalized,
+            optimizer = optimizer,
             ...
         )
 

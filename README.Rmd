@@ -65,12 +65,12 @@ fit <- cbSCRIP(
   Surv(ftime, fstatus) ~ .,
   data = train,
   nlambda = 50,
-  fit_fun = MNlogisticCCD,
+  optimizer = "CCD",
   ratio = 20,
-  coeffs = "original" 
+  coeffs = "original"
 )
 
-# Summary 
+# Summary
 fit
 
 # Plot
@@ -85,7 +85,7 @@ cv_fit <- cv_cbSCRIP(
   ratio = 20
 )
 
-# Summary 
+# Summary
 cv_fit
 
 # Plot

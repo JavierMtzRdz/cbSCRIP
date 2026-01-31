@@ -257,7 +257,7 @@ unstandardize_coefficients <- function(coefficients, scaler, col_names) {
 fit_cb_model <- function(cb_data,
                          regularization = c("elastic-net", "SCAD"),
                          lambda, alpha = NULL,
-                         fit_fun = MNlogisticSAGAN,
+                         optimizer = c("CCD", "SAGA", "SVRG"),
                          param_start = NULL,
                          n_unpenalized = 2,
                          standardize = TRUE,
@@ -267,6 +267,15 @@ fit_cb_model <- function(cb_data,
     if (!requireNamespace("Matrix", quietly = TRUE)) cli::cli_abort("Matrix package required")
 
     regularization <- rlang::arg_match(regularization)
+    optimizer <- rlang::arg_match(optimizer)
+
+    # Map optimizer name to function
+    fit_fun <- switch(optimizer,
+        "CCD" = MNlogisticCCD,
+        "SAGA" = MNlogisticSAGAN,
+        "SVRG" = MNlogisticSVRG
+    )
+
     penalty_params <- prepare_penalty_params(regularization, lambda, alpha)
 
     if (is.null(all_event_levels)) all_event_levels <- sort(unique(cb_data$event))

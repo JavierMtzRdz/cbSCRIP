@@ -12,7 +12,7 @@ test_that("cbSCRIP runs with MNlogisticCCD", {
             data = train,
             nlambda = 10,
             maxit = 100,
-            fit_fun = MNlogisticCCD,
+            optimizer = "CCD",
             ratio = 20
         )
     })
@@ -35,7 +35,7 @@ test_that("cbSCRIP runs with MNlogisticSAGAN", {
             data = train,
             nlambda = 10,
             maxit = 100,
-            fit_fun = MNlogisticSAGAN,
+            optimizer = "SAGA",
             ratio = 20
         )
     })
@@ -57,7 +57,7 @@ test_that("cbSCRIP runs with MNlogisticSVRG", {
             data = train,
             nlambda = 10,
             maxit = 100,
-            fit_fun = MNlogisticSVRG,
+            optimizer = "SVRG",
             ratio = 20
         )
     })
