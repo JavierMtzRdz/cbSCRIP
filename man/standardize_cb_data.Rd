@@ -2,49 +2,16 @@
 % Please edit documentation in R/fit.r
 \name{standardize_cb_data}
 \alias{standardize_cb_data}
-\title{Internal Function to Fit a Regularization Path}
+\title{Standardize Case-Base Data}
 \usage{
 standardize_cb_data(cb_data)
 }
 \arguments{
 \item{cb_data}{A case-base data list.}
-
-\item{lambdas}{Vector of lambda values.}
-
-\item{regularization}{Regularization type.}
-
-\item{alpha}{Alpha value.}
-
-\item{n_unpenalized}{Number of unpenalized covariates.}
-
-\item{fit_fun}{Fitting function.}
-
-\item{param_start}{Initial parameters.}
-
-\item{standardize}{Whether to standardize.}
-
-\item{all_event_levels}{Event levels.}
-
-\item{...}{Additional arguments.}
 }
 \value{
-A list of model fits.
-
 A list containing the standardized \code{cb_data} and the \code{scaler} object.
 }
 \description{
-Standardizes data once and fits the model for a sequence of lambdas using warm starts.
+Centers and scales the covariates in a case-base dataset.
 }
-\keyword{Case-Base}
-\keyword{Centers}
-\keyword{Data}
-\keyword{Standardize}
-\keyword{a}
-\keyword{and}
-\keyword{case-base}
-\keyword{covariates}
-\keyword{dataset.}
-\keyword{in}
-\keyword{internal}
-\keyword{scales}
-\keyword{the}

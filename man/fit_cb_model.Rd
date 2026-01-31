@@ -30,9 +30,13 @@ fit_cb_model(
 
 \item{param_start}{Optional starting values for the coefficients.}
 
+\item{n_unpenalized}{Integer. The number of leading covariates to leave unpenalized.}
+
 \item{standardize}{Logical. If TRUE, covariates are scaled to have mean 0 and SD 1.}
 
-\item{unpen_cov}{Integer. The number of leading covariates to leave unpenalized.}
+\item{all_event_levels}{Optional vector of all event levels.}
+
+\item{...}{Additional arguments passed to the fitting function.}
 }
 \value{
 The fitted model object from the specified \code{fit_fun}.

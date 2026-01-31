@@ -6,6 +6,11 @@
 \usage{
 \method{plot}{cbSCRIP.cv}(x, ...)
 }
+\arguments{
+\item{x}{An object of class \code{cbSCRIP.cv}.}
+
+\item{...}{Additional arguments (not currently used).}
+}
 \value{
 A ggplot object.
 }
