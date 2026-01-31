@@ -5,7 +5,7 @@ scalar_scad_prox <- function(val, lambda, a = 3.7) {
     .Call(`_cbSCRIP_scalar_scad_prox`, val, lambda, a)
 }
 
-MultinomLogisticCCD <- function(X, Y, offset, K, reg_p, penalty = 1L, lam1 = 0.0, lam2 = 0.0, tolerance = 1e-7, maxit = 1000L, lr_adj = 1.0, verbose = FALSE, pos = FALSE, param_start = NULL) {
+MultinomLogisticCCD <- function(X, Y, offset, K, reg_p, penalty = 1L, lam1 = 0.0, lam2 = 0.0, tolerance = 1e-7, maxit = 5000L, lr_adj = 1.0, verbose = FALSE, pos = FALSE, param_start = NULL) {
     .Call(`_cbSCRIP_MultinomLogisticCCD`, X, Y, offset, K, reg_p, penalty, lam1, lam2, tolerance, maxit, lr_adj, verbose, pos, param_start)
 }
 
