@@ -33,8 +33,8 @@
 # 	ifndef SHLIB_OPENMP_CXXFLAGS
 # 		SHLIB_OPENMP_CXXFLAGS= -fopenmp
 # 	endif
-	CXX_STD = CXX11
-	PKG_CXXFLAGS = $(SHLIB_OPENMP_CXXFLAGS) -I../inst/include/ -I../inst/include/decomp -I../inst/include/dictLearn -I../inst/include/linalg -I../inst/include/prox -DNDEBUG -DREMOVE_
+# CXX_STD = CXX14
+	PKG_CXXFLAGS = $(SHLIB_OPENMP_CXXFLAGS) -I../inst/include/ -I../inst/include/decomp -I../inst/include/dictLearn -I../inst/include/linalg -I../inst/include/prox -DNDEBUG -DREMOVE_ -DARMA_USE_CURRENT
 
 	PKG_LIBS = $(SHLIB_OPENMP_CXXFLAGS) $(LAPACK_LIBS) $(BLAS_LIBS) $(FLIBS) 
 

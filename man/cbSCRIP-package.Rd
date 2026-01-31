@@ -3,12 +3,19 @@
 \docType{package}
 \name{cbSCRIP-package}
 \alias{cbSCRIP-package}
-\title{cbSCRIP: What the Package Does (One Line, Title Case)}
+\title{cbSCRIP: Case-Base Sampling for Sparse Competing Risk Prediction}
 \description{
-What the package does (one paragraph).
+Implements an estimator based on case-base sampling for sparse competing risk prediction, cbSCRIP. It uses an elastic-net penalized multinomial approach with an offset parameter, enabling both accurate prediction and variable selection under competing risks.
 }
 \author{
-\strong{Maintainer}: First Last \email{first.last@example.com}
+\strong{Maintainer}: Javier Martinez-Rodriguez \email{javier.mr@stat.ubc.ca}
+
+Authors:
+\itemize{
+  \item Nirupama Tamvada
+  \item Sahir Bhatnagar
+  \item Gabriela V. Cohen Freue \email{gcohen@stat.ubc.ca}
+}
 
 }
 \keyword{internal}
