@@ -654,6 +654,8 @@ Rcpp::List MultinomLogisticSAGA_Native(
     arma::uvec indices = arma::randperm(n);
 
     for (arma::uword jj = 0; jj < indices.n_elem; ++jj) {
+      if (jj % 1000 == 0)
+        Rcpp::checkUserInterrupt();
       int i = static_cast<int>(indices(jj));
 
       // residuals
@@ -691,6 +693,13 @@ Rcpp::List MultinomLogisticSAGA_Native(
       // gradient descent step then proximal
       apply_proximal_step_native(param, param_unprox, learning_rate, reg_p, p,
                                  K, penalty, lam1, lam2, pos);
+
+      if (jj % 1000 == 0) {
+        if (!param.is_finite()) {
+          Rcpp::warning("SAGA diverged (NaN detected) within epoch.");
+          goto end_of_saga;
+        }
+      }
     }
 
     // Convergence & KKT check every epoch
@@ -739,6 +748,8 @@ Rcpp::List MultinomLogisticSAGA_Native(
       break;
     }
   }
+
+end_of_saga:;
 
   return Rcpp::List::create(
       Rcpp::Named("Estimates") = param, Rcpp::Named("Converged") = converged,
@@ -815,8 +826,14 @@ Rcpp::List MultinomLogisticSVRG(
   long long step = 0;
 
   for (step = 0; step < max_steps; ++step) {
-    if (step % 1000 == 0)
+    // 0. Safety Checks
+    if (step % 1000 == 0) {
       Rcpp::checkUserInterrupt();
+      if (!param.is_finite()) {
+        Rcpp::warning("SVRG diverged (NaN detected).");
+        break;
+      }
+    }
 
     // 1. Sample index
     int i = std::floor(arma::randu() * n);

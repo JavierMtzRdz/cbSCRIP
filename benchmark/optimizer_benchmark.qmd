@@ -1,0 +1,176 @@
+---
+title: "Optimizer Benchmark"
+format:
+  gfm:
+    toc: false
+knitr:
+  opts_chunk:
+    comment: "#>"
+    message: false
+    dev: "png"
+    fig.width: 8
+    fig.height: 4.5
+    fig.align: center
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r, include=FALSE}
+
+#' To install mytidyfunctions, you need 
+#' remotes::install_github("JavierMtzRdz/mytidyfunctions")
+if (!require("pacman")) install.packages("pacman")
+if (!require("devtools")) install.packages("devtools")
+if (require("mytidyfunctions")) mytidyfunctions::set_mytheme() 
+
+Sys.setlocale("LC_ALL", "en_US.UTF-8")
+
+knitr::opts_chunk$set(
+  echo = TRUE,
+  message = FALSE,
+  warning = FALSE
+)
+```
+
+```{r setup}
+devtools::load_all(".")
+
+pacman::p_load(survival, bench, ggplot2, dplyr, tidyr)
+
+```
+
+## Overview
+
+This benchmark compares the three optimization algorithms available in `cbSCRIP`:
+
+- **CCD**: Cyclical Coordinate Descent
+- **SAGA**: Stochastic Average Gradient with Nesterov acceleration
+- **SVRG**: Stochastic Variance Reduced Gradient
+
+We evaluate performance across different dataset sizes measuring:
+
+- **Execution time**
+- **Memory allocation**
+
+## Data Generation
+
+```{r data-setup}
+set.seed(42)
+
+# Define benchmark configurations
+configs <- tibble::tibble(
+  n = c(200, 500, 1000),
+  p = c(20, 50, 100),
+  config_name = paste0("n=", n, ", p=", p)
+)
+
+# Generate datasets
+datasets <- purrr::map2(configs$n, configs$p, function(n, p) {
+  gen_data(n_train = n, p = p, num_true = 5, setting = 1)$train
+})
+names(datasets) <- configs$config_name
+```
+
+## Benchmark Function
+
+```{r benchmark-fn}
+run_optimizer_benchmark <- function(train_data, optimizer, nlambda = 10) {
+  cbSCRIP(
+    Surv(ftime, fstatus) ~ .,
+    data = train_data,
+    nlambda = nlambda,
+    optimizer = optimizer,
+    ratio = 20,
+    maxit = 100,
+    coeffs = "original"
+  )
+}
+```
+
+## Running Benchmarks
+
+```{r run-benchmarks}
+#| cache: true
+
+optimizers <- c("CCD", "SAGA", "SVRG")
+
+# Run benchmarks using bench::press to standardise output
+benchmark_results <- bench::press(
+  config_name = configs$config_name,
+  {
+    data <- datasets[[config_name]]
+    bench::mark(
+      CCD = run_optimizer_benchmark(data, "CCD"),
+      SAGA = run_optimizer_benchmark(data, "SAGA"),
+      SVRG = run_optimizer_benchmark(data, "SVRG"),
+      iterations = 10,
+      check = FALSE,
+      memory = TRUE
+    )
+  }
+)
+
+# Ensure proper ordering of configurations
+benchmark_results <- benchmark_results |>
+  mutate(config_name = factor(config_name, levels = configs$config_name))
+
+benchmark_results
+```
+
+## Results
+
+### Execution Time
+
+```{r time-plot}
+#| fig-width: 10
+#| fig-height: 6
+
+autoplot(benchmark_results, type = "boxplot") +
+  facet_wrap(~config_name, scales = "free_x") +
+  labs(
+    title = "Execution Time Distribution",
+    subtitle = "Higher density / lower values are better",
+    x = "Time"
+  ) +
+  theme(legend.position = "none")
+```
+
+### Memory Allocation
+
+```{r memory-plot}
+#| fig-width: 8
+#| fig-height: 5
+
+benchmark_results |>
+  mutate(
+    mem_mb = as.numeric(mem_alloc) / 1e6
+  ) |>
+  ggplot(aes(x = config_name, y = mem_mb, fill = as.character(expression))) +
+  geom_col(position = position_dodge(width = 1)) +
+  labs(
+    title = "Memory Allocation by Optimizer",
+    x = "Setting",
+    y = "Memory Allocated (MB)",
+    fill = "Optimizer"
+  )
+```
+
+### Summary Table
+
+```{r summary-table}
+
+benchmark_results |>
+  mutate(
+    time_sec = round(as.numeric(median), 3),
+    mem_mb = round(as.numeric(mem_alloc) / 1e6, 2)
+  ) |>
+  select(Setting = config_name, Optimizer = expression, 
+         `Time (s)` = time_sec, `Memory (MB)` = mem_mb) |>
+  knitr::kable()
+```
+
+## Session Info
+
+```{r session-info}
+sessionInfo()
+```
