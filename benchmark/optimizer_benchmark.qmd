@@ -66,7 +66,7 @@ configs <- tibble::tibble(
 
 # Generate datasets
 datasets <- purrr::map2(configs$n, configs$p, function(n, p) {
-  gen_data(n_train = n, p = p, num_true = 5, setting = 1)$train
+  gen_data(n_train = n, p = p, num_true = 5, setting = 1)
 })
 names(datasets) <- configs$config_name
 ```
@@ -75,13 +75,13 @@ names(datasets) <- configs$config_name
 
 ```{r benchmark-fn}
 run_optimizer_benchmark <- function(train_data, optimizer, nlambda = 10) {
+  set.seed(42)
   cbSCRIP(
     Surv(ftime, fstatus) ~ .,
     data = train_data,
     nlambda = nlambda,
     optimizer = optimizer,
-    ratio = 20,
-    maxit = 100,
+    ratio = 50,
     coeffs = "original"
   )
 }
@@ -92,18 +92,19 @@ run_optimizer_benchmark <- function(train_data, optimizer, nlambda = 10) {
 ```{r run-benchmarks}
 #| cache: true
 
-optimizers <- c("CCD", "SAGA", "SVRG")
+optimizers <- c("CCD", "SAGA", "SVRG", "FISTA")
 
 # Run benchmarks using bench::press to standardise output
 benchmark_results <- bench::press(
   config_name = configs$config_name,
   {
-    data <- datasets[[config_name]]
+    data <- datasets[[config_name]]$train
     bench::mark(
       CCD = run_optimizer_benchmark(data, "CCD"),
       SAGA = run_optimizer_benchmark(data, "SAGA"),
       SVRG = run_optimizer_benchmark(data, "SVRG"),
-      iterations = 10,
+      FISTA = run_optimizer_benchmark(data, "FISTA"),
+      iterations = 3,
       check = FALSE,
       memory = TRUE
     )
@@ -167,6 +168,171 @@ benchmark_results |>
   select(Setting = config_name, Optimizer = expression, 
          `Time (s)` = time_sec, `Memory (MB)` = mem_mb) |>
   knitr::kable()
+```
+
+### Accuracy and Parameter Value Reaching Validation
+
+To ensure all four optimizers converge to the expected parameter values and match each other, we extract the estimated coefficient matrices across the entire lambda path on the single dataset configuration ($n=500, p=50$) and compute the pairwise Pearson correlation matrix.
+
+We also compute the Mean Squared Error (MSE) of the estimated cause-specific coefficients relative to the true baseline coefficients (`beta1`), as well as the MSE between the optimizers across all lambdas to verify that their estimation paths are identical.
+
+```{r accuracy-validation}
+data_val <- datasets[["n=500, p=50"]]
+train_val <- data_val$train
+true_beta1 <- data_val$beta1
+
+fit_ccd <- run_optimizer_benchmark(train_val, "CCD")
+fit_saga <- run_optimizer_benchmark(train_val, "SAGA")
+fit_svrg <- run_optimizer_benchmark(train_val, "SVRG")
+fit_fista <- run_optimizer_benchmark(train_val, "FISTA")
+
+# Extract coefficients for all lambda matrices and flatten to numeric vector
+coef_ccd <- unlist(fit_ccd$coefficients)
+coef_saga <- unlist(fit_saga$coefficients)
+coef_svrg <- unlist(fit_svrg$coefficients)
+coef_fista <- unlist(fit_fista$coefficients)
+
+# Combine into matrix for correlation
+all_coefs <- cbind(
+  CCD = coef_ccd,
+  SAGA = coef_saga,
+  SVRG = coef_svrg,
+  FISTA = coef_fista
+)
+
+# Compute correlation matrix
+cor_matrix <- cor(all_coefs)
+
+# Extract cause 1 coefficients (excluding the log-time and intercept rows at the end)
+p_val <- length(true_beta1)
+coef_ccd_c1 <- fit_ccd$coefficients[[5]][1:p_val, 1]
+coef_saga_c1 <- fit_saga$coefficients[[5]][1:p_val, 1]
+coef_svrg_c1 <- fit_svrg$coefficients[[5]][1:p_val, 1]
+coef_fista_c1 <- fit_fista$coefficients[[5]][1:p_val, 1]
+
+# Compute Bias MSE helper function
+mse_bias <- function(coef, true_coef) {
+  mean((coef - true_coef)^2)
+}
+
+mse_table <- tibble::tibble(
+  Optimizer = c("CCD", "SAGA", "SVRG", "FISTA"),
+  `Bias MSE` = c(
+    mse_bias(coef_ccd_c1, true_beta1),
+    mse_bias(coef_saga_c1, true_beta1),
+    mse_bias(coef_svrg_c1, true_beta1),
+    mse_bias(coef_fista_c1, true_beta1)
+  )
+)
+
+knitr::kable(cor_matrix, caption = "Pairwise Pearson Correlation of Estimated Coefficients (n=500, p=50, all Lambdas)")
+knitr::kable(mse_table, caption = "Bias Mean Squared Error (MSE) of Estimated Cause 1 Coefficients (relative to True beta1)")
+
+# Direct Comparison of Estimated Coefficients
+coef_compare_df <- tibble::tibble(
+  Variable = paste0("X", 1:p_val),
+  True = true_beta1,
+  CCD = coef_ccd_c1,
+  SAGA = coef_saga_c1,
+  SVRG = coef_svrg_c1,
+  FISTA = coef_fista_c1
+)
+
+knitr::kable(head(coef_compare_df, 15), caption = "Comparison of Estimated Coefficients for Cause 1 (First 15 variables, 5th Lambda)")
+
+# Compute MSE between optimizers across ALL lambdas
+mse_path <- lapply(1:length(fit_ccd$lambdagrid), function(l) {
+  # Flatten coefficients for this specific lambda
+  c_ccd <- as.vector(fit_ccd$coefficients[[l]])
+  c_saga <- as.vector(fit_saga$coefficients[[l]])
+  c_svrg <- as.vector(fit_svrg$coefficients[[l]])
+  c_fista <- as.vector(fit_fista$coefficients[[l]])
+  
+  tibble::tibble(
+    Lambda = fit_ccd$lambdagrid[l],
+    LambdaIndex = l,
+    SAGA = mse_bias(c_saga, c_ccd),
+    SVRG = mse_bias(c_svrg, c_ccd),
+    FISTA = mse_bias(c_fista, c_ccd)
+  )
+}) |> dplyr::bind_rows()
+
+# Reshape and plot
+mse_path_long <- tidyr::pivot_longer(mse_path, cols = c("SAGA", "SVRG", "FISTA"), 
+                                     names_to = "Optimizer", values_to = "MSE_vs_CCD")
+
+ggplot(mse_path_long, aes(x = log(Lambda), y = MSE_vs_CCD, color = Optimizer)) +
+  geom_line(linewidth = 1) +
+  theme_minimal() +
+  labs(
+    title = "MSE of Optimizers vs CCD across the Lambda Path",
+    x = "log(Lambda)",
+    y = "Mean Squared Error (vs CCD)"
+  ) +
+  scale_y_log10()
+```
+
+## Unpenalized cbSCRIP vs VGAM Validation
+
+To ensure that the optimizers are working correctly without regularization, we compare `cbSCRIP` with a very small penalty (`lambda = 1e-10`) against `VGAM::vglm`. Because `VGAM` is computationally constrained and typically fails when covariates exceed 30-40, we generate a smaller dataset ($p=20$) for this corroboration.
+
+```{r vgam-validation}
+# Generate a smaller dataset for VGAM
+set.seed(123)
+data_list_small <- gen_data(n_train = 500, p = 20, num_true = 5, setting = 1)
+train_small <- data_list_small$train
+
+# 1. Fit VGAM
+cb_data_small <- create_cb_data(Surv(ftime, fstatus) ~ ., data = train_small, ratio = 10)
+# Flatten cb_data for VGAM
+vgam_df <- data.frame(
+  event = as.factor(cb_data_small$event),
+  time = cb_data_small$time,
+  offset = cb_data_small$offset
+)
+vgam_df <- cbind(vgam_df, cb_data_small$covariates)
+
+vglm_fit <- VGAM::vglm(event ~ . - time + log(time) - offset, 
+                 family = VGAM::multinomial(refLevel = 1), 
+                 data = vgam_df, 
+                 offset = offset,
+                 maxit = 100)
+
+# Extract and format VGAM coefficients to match cbSCRIP
+vglm_coefs <- VGAM::coef(vglm_fit, matrix = TRUE)
+# Reorder to match cbSCRIP: covariates, log(time), intercept
+vglm_covs <- vglm_coefs[!rownames(vglm_coefs) %in% c("(Intercept)", "log(time)"), ]
+vglm_time <- vglm_coefs["log(time)", , drop = FALSE]
+vglm_int <- vglm_coefs["(Intercept)", , drop = FALSE]
+vglm_formatted <- rbind(vglm_covs, vglm_time, vglm_int)
+colnames(vglm_formatted) <- 1:ncol(vglm_formatted)
+
+# 2. Fit cbSCRIP for all optimizers (unpenalized approximation)
+optimizers <- c("CCD", "SAGA", "SVRG", "FISTA")
+cb_fits <- lapply(optimizers, function(opt) {
+  cbSCRIP(Surv(ftime, fstatus) ~ ., 
+          cb_data = cb_data_small, 
+          regularization = "elastic-net",
+          lambda = 1e-10, 
+          optimizer = opt,
+          coeffs = "original")
+})
+
+# 3. Compare coefficients
+vglm_flat <- as.vector(vglm_formatted)
+
+validation_results <- do.call(rbind, lapply(1:length(optimizers), function(i) {
+  cb_flat <- as.vector(cb_fits[[i]]$coefficients)
+  tibble::tibble(
+    Model = paste0("cbSCRIP ", optimizers[i], " (lambda=1e-10)"),
+    Reference = "VGAM::vglm",
+    `MSE between estimates` = mean((vglm_flat - cb_flat)^2),
+    `Max Absolute Diff` = max(abs(vglm_flat - cb_flat))
+  )
+}))
+
+validation_results |> knitr::kable(caption = "Validation of Unpenalized cbSCRIP (All Optimizers) against VGAM")
+
 ```
 
 ## Session Info

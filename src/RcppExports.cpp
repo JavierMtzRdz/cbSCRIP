@@ -99,12 +99,37 @@ BEGIN_RCPP
     return rcpp_result_gen;
 END_RCPP
 }
+// MultinomLogisticFISTA
+Rcpp::List MultinomLogisticFISTA(const arma::mat& X, const arma::vec& Y, const arma::vec& offset, int K, int reg_p, int penalty, double lam1, double lam2, double tolerance, int maxit, double lr_adj, bool verbose, bool pos, Rcpp::Nullable<Rcpp::NumericMatrix> param_start);
+RcppExport SEXP _cbSCRIP_MultinomLogisticFISTA(SEXP XSEXP, SEXP YSEXP, SEXP offsetSEXP, SEXP KSEXP, SEXP reg_pSEXP, SEXP penaltySEXP, SEXP lam1SEXP, SEXP lam2SEXP, SEXP toleranceSEXP, SEXP maxitSEXP, SEXP lr_adjSEXP, SEXP verboseSEXP, SEXP posSEXP, SEXP param_startSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< const arma::mat& >::type X(XSEXP);
+    Rcpp::traits::input_parameter< const arma::vec& >::type Y(YSEXP);
+    Rcpp::traits::input_parameter< const arma::vec& >::type offset(offsetSEXP);
+    Rcpp::traits::input_parameter< int >::type K(KSEXP);
+    Rcpp::traits::input_parameter< int >::type reg_p(reg_pSEXP);
+    Rcpp::traits::input_parameter< int >::type penalty(penaltySEXP);
+    Rcpp::traits::input_parameter< double >::type lam1(lam1SEXP);
+    Rcpp::traits::input_parameter< double >::type lam2(lam2SEXP);
+    Rcpp::traits::input_parameter< double >::type tolerance(toleranceSEXP);
+    Rcpp::traits::input_parameter< int >::type maxit(maxitSEXP);
+    Rcpp::traits::input_parameter< double >::type lr_adj(lr_adjSEXP);
+    Rcpp::traits::input_parameter< bool >::type verbose(verboseSEXP);
+    Rcpp::traits::input_parameter< bool >::type pos(posSEXP);
+    Rcpp::traits::input_parameter< Rcpp::Nullable<Rcpp::NumericMatrix> >::type param_start(param_startSEXP);
+    rcpp_result_gen = Rcpp::wrap(MultinomLogisticFISTA(X, Y, offset, K, reg_p, penalty, lam1, lam2, tolerance, maxit, lr_adj, verbose, pos, param_start));
+    return rcpp_result_gen;
+END_RCPP
+}
 
 static const R_CallMethodDef CallEntries[] = {
     {"_cbSCRIP_scalar_scad_prox", (DL_FUNC) &_cbSCRIP_scalar_scad_prox, 3},
     {"_cbSCRIP_MultinomLogisticCCD", (DL_FUNC) &_cbSCRIP_MultinomLogisticCCD, 14},
     {"_cbSCRIP_MultinomLogisticSAGA_Native", (DL_FUNC) &_cbSCRIP_MultinomLogisticSAGA_Native, 15},
     {"_cbSCRIP_MultinomLogisticSVRG", (DL_FUNC) &_cbSCRIP_MultinomLogisticSVRG, 16},
+    {"_cbSCRIP_MultinomLogisticFISTA", (DL_FUNC) &_cbSCRIP_MultinomLogisticFISTA, 14},
     {NULL, NULL, 0}
 };
 

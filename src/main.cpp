@@ -917,3 +917,80 @@ Rcpp::List MultinomLogisticSVRG(
       Rcpp::Named("Estimates") = param, Rcpp::Named("Converged") = converged,
       Rcpp::Named("Convergence Iteration") = convergence_iter);
 }
+
+// [[Rcpp::export]]
+Rcpp::List MultinomLogisticFISTA(const arma::mat& X, const arma::vec& Y, const arma::vec& offset,
+                                 int K, int reg_p, int penalty = 1, double lam1 = 0.0,
+                                 double lam2 = 0.0, double tolerance = 1e-4, int maxit = 500,
+                                 double lr_adj = 1.0, bool verbose = false, bool pos = false,
+                                 Rcpp::Nullable<Rcpp::NumericMatrix> param_start = R_NilValue) {
+    int n = X.n_rows;
+    int p = X.n_cols;
+
+    arma::mat param(p, K, arma::fill::zeros);
+    if (param_start.isNotNull()) {
+        param = Rcpp::as<arma::mat>(Rcpp::NumericMatrix(param_start));
+    }
+
+    arma::mat param_old = param;
+    arma::mat y = param;
+    double t = 1.0;
+
+    double L = estimate_lipschitz_default(X); 
+    double lr = lr_adj / (L + 1e-12);
+
+    bool converged = false;
+    int iter = 0;
+
+    for (; iter < maxit; ++iter) {
+        if (iter % 100 == 0) Rcpp::checkUserInterrupt();
+        
+        arma::mat eta = X * y;
+        eta.each_col() += offset;
+
+        // Stable softmax with baseline 0
+        arma::vec max_scores = arma::max(eta, 1);
+        max_scores.elem(arma::find(max_scores < 0.0)).zeros();
+        
+        arma::mat P = eta;
+        P.each_col() -= max_scores;
+        P = arma::exp(P);
+        
+        arma::vec row_sums = arma::sum(P, 1) + arma::exp(-max_scores) + arma::datum::eps;
+        P.each_col() /= row_sums;
+
+        arma::mat Grad = X.t() * P;
+        for (int i = 0; i < n; ++i) {
+            int k = Y(i) - 1;
+            if (k >= 0 && k < K) {
+                Grad.col(k) -= X.row(i).t();
+            }
+        }
+        Grad /= static_cast<double>(n);
+
+        arma::mat param_new = y - lr * Grad;
+        arma::mat param_unprox = param_new;
+        
+        apply_proximal_step_native(param_new, param_unprox, lr, reg_p, p, K, penalty, lam1, lam2, pos);
+
+        double diff = arma::abs(param_new - param).max();
+        if (diff < tolerance) {
+            param = param_new;
+            converged = true;
+            break;
+        }
+
+        double t_new = (1.0 + std::sqrt(1.0 + 4.0 * t * t)) / 2.0;
+        y = param_new + ((t - 1.0) / t_new) * (param_new - param);
+
+        param_old = param;
+        param = param_new;
+        t = t_new;
+    }
+
+    return Rcpp::List::create(
+        Rcpp::Named("Estimates") = param,
+        Rcpp::Named("Converged") = converged,
+        Rcpp::Named("Convergence Iteration") = iter
+    );
+}
