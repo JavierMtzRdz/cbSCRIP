@@ -233,10 +233,10 @@ knitr::kable(cor_matrix, caption = "Pairwise Pearson Correlation of Estimated Co
 
 |       |       CCD |      SAGA |      SVRG |     FISTA |
 |:------|----------:|----------:|----------:|----------:|
-| CCD   | 1.0000000 | 0.9964154 | 0.9964107 | 0.9903475 |
-| SAGA  | 0.9964154 | 1.0000000 | 0.9999996 | 0.9954014 |
-| SVRG  | 0.9964107 | 0.9999996 | 1.0000000 | 0.9953914 |
-| FISTA | 0.9903475 | 0.9954014 | 0.9953914 | 1.0000000 |
+| CCD   | 1.0000000 | 0.9994858 | 0.9994808 | 0.9874538 |
+| SAGA  | 0.9994858 | 1.0000000 | 0.9999992 | 0.9872974 |
+| SVRG  | 0.9994808 | 0.9999992 | 1.0000000 | 0.9872398 |
+| FISTA | 0.9874538 | 0.9872974 | 0.9872398 | 1.0000000 |
 
 Pairwise Pearson Correlation of Estimated Coefficients (n=500, p=50, all
 Lambdas)
@@ -247,10 +247,10 @@ knitr::kable(mse_table, caption = "Bias Mean Squared Error (MSE) of Estimated Ca
 
 | Optimizer |  Bias MSE |
 |:----------|----------:|
-| CCD       | 0.0033821 |
-| SAGA      | 0.0032350 |
-| SVRG      | 0.0032297 |
-| FISTA     | 0.0033149 |
+| CCD       | 0.0021566 |
+| SAGA      | 0.0033972 |
+| SVRG      | 0.0033908 |
+| FISTA     | 0.0033627 |
 
 Bias Mean Squared Error (MSE) of Estimated Cause 1 Coefficients
 (relative to True beta1)
@@ -269,23 +269,23 @@ coef_compare_df <- tibble::tibble(
 knitr::kable(head(coef_compare_df, 15), caption = "Comparison of Estimated Coefficients for Cause 1 (First 15 variables, 5th Lambda)")
 ```
 
-| Variable | True |        CCD |      SAGA |      SVRG |     FISTA |
-|:---------|-----:|-----------:|----------:|----------:|----------:|
-| X1       |    1 |  0.7551595 | 0.7639083 | 0.7640541 | 0.7625130 |
-| X2       |    1 |  0.7617526 | 0.7747638 | 0.7749107 | 0.7723854 |
-| X3       |    1 |  0.8518804 | 0.8547803 | 0.8549374 | 0.8521519 |
-| X4       |    1 |  0.9407263 | 0.9296028 | 0.9298500 | 0.9244354 |
-| X5       |    1 |  0.8463490 | 0.8455881 | 0.8457620 | 0.8435346 |
-| X6       |    0 |  0.0000000 | 0.0000000 | 0.0000000 | 0.0000000 |
-| X7       |    0 | -0.0084244 | 0.0000000 | 0.0000000 | 0.0000000 |
-| X8       |    0 |  0.0000000 | 0.0000000 | 0.0000000 | 0.0000000 |
-| X9       |    0 |  0.0000000 | 0.0000000 | 0.0000000 | 0.0000000 |
-| X10      |    0 |  0.0000000 | 0.0000000 | 0.0000000 | 0.0000000 |
-| X11      |    0 |  0.0000000 | 0.0000000 | 0.0000000 | 0.0000000 |
-| X12      |    0 |  0.0000000 | 0.0000000 | 0.0000000 | 0.0000000 |
-| X13      |    0 |  0.0000000 | 0.0000000 | 0.0000000 | 0.0000361 |
-| X14      |    0 |  0.0000000 | 0.0000000 | 0.0000000 | 0.0000000 |
-| X15      |    0 |  0.0000000 | 0.0000000 | 0.0000000 | 0.0000000 |
+| Variable | True |       CCD |      SAGA |      SVRG |     FISTA |
+|:---------|-----:|----------:|----------:|----------:|----------:|
+| X1       |    1 | 0.8129618 | 0.7595971 | 0.7597742 | 0.7612527 |
+| X2       |    1 | 0.8179921 | 0.7683918 | 0.7685559 | 0.7695334 |
+| X3       |    1 | 0.8952497 | 0.8492418 | 0.8494249 | 0.8496778 |
+| X4       |    1 | 0.9706951 | 0.9288270 | 0.9291317 | 0.9292240 |
+| X5       |    1 | 0.8581291 | 0.8409422 | 0.8411442 | 0.8421594 |
+| X6       |    0 | 0.0000000 | 0.0000000 | 0.0000000 | 0.0000000 |
+| X7       |    0 | 0.0000000 | 0.0000000 | 0.0000000 | 0.0000000 |
+| X8       |    0 | 0.0000000 | 0.0000000 | 0.0000000 | 0.0000000 |
+| X9       |    0 | 0.0000000 | 0.0000000 | 0.0000000 | 0.0000000 |
+| X10      |    0 | 0.0000000 | 0.0000000 | 0.0000000 | 0.0000000 |
+| X11      |    0 | 0.0000000 | 0.0000000 | 0.0000000 | 0.0000000 |
+| X12      |    0 | 0.0000000 | 0.0000000 | 0.0000000 | 0.0000000 |
+| X13      |    0 | 0.0028312 | 0.0001230 | 0.0001301 | 0.0006167 |
+| X14      |    0 | 0.0000000 | 0.0000000 | 0.0000000 | 0.0000000 |
+| X15      |    0 | 0.0000000 | 0.0000000 | 0.0000000 | 0.0000000 |
 
 Comparison of Estimated Coefficients for Cause 1 (First 15 variables,
 5th Lambda)
@@ -370,7 +370,7 @@ colnames(vglm_formatted) <- 1:ncol(vglm_formatted)
 optimizers <- c("CCD", "SAGA", "SVRG", "FISTA")
 cb_fits <- lapply(optimizers, function(opt) {
   cbSCRIP(Surv(ftime, fstatus) ~ ., 
-          data = train_small, 
+          cb_data = cb_data_small, 
           regularization = "elastic-net",
           lambda = 1e-10, 
           optimizer = opt,
@@ -395,10 +395,10 @@ validation_results |> knitr::kable(caption = "Validation of Unpenalized cbSCRIP 
 
 | Model | Reference | MSE between estimates | Max Absolute Diff |
 |:---|:---|---:|---:|
-| cbSCRIP CCD (lambda=1e-10) | VGAM::vglm | 0.0010805 | 0.1097516 |
-| cbSCRIP SAGA (lambda=1e-10) | VGAM::vglm | 0.0015968 | 0.1629073 |
-| cbSCRIP SVRG (lambda=1e-10) | VGAM::vglm | 0.0030257 | 0.2143970 |
-| cbSCRIP FISTA (lambda=1e-10) | VGAM::vglm | 0.0015557 | 0.1421688 |
+| cbSCRIP CCD (lambda=1e-10) | VGAM::vglm | 0.0000113 | 0.0074420 |
+| cbSCRIP SAGA (lambda=1e-10) | VGAM::vglm | 0.0000178 | 0.0107058 |
+| cbSCRIP SVRG (lambda=1e-10) | VGAM::vglm | 0.0000172 | 0.0104265 |
+| cbSCRIP FISTA (lambda=1e-10) | VGAM::vglm | 0.0000414 | 0.0182288 |
 
 Validation of Unpenalized cbSCRIP (All Optimizers) against VGAM
 
