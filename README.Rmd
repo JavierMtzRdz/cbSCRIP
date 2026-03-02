@@ -34,7 +34,7 @@ options(
 
 ## Overview
 
-`cbSCRIP` implements an estimator based on **case-base sampling** for sparse competing risk prediction. It uses an elastic-net penalized multinomial approach with an offset parameter, enabling both accurate prediction and variable selection under competing risks. This approach allows for efficient estimation of cause-specific hazards in high-dimensional settings.
+`cbSCRIP` implements an estimator based on case-base sampling for sparse competing risk prediction. It uses an elastic-net penalized multinomial approach with an offset parameter, enabling both accurate prediction and variable selection under competing risks. This approach allows for efficient estimation of cause-specific hazards in high-dimensional settings.
 
 ## Installation
 

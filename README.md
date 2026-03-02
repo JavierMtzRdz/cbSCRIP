@@ -9,12 +9,12 @@
 
 ## Overview
 
-`cbSCRIP` implements an estimator based on **case-base sampling** for
-sparse competing risk prediction. It uses an elastic-net penalized
-multinomial approach with an offset parameter, enabling both accurate
-prediction and variable selection under competing risks. This approach
-allows for efficient estimation of cause-specific hazards in
-high-dimensional settings.
+`cbSCRIP` implements an estimator based on case-base sampling for sparse
+competing risk prediction. It uses an elastic-net penalized multinomial
+approach with an offset parameter, enabling both accurate prediction and
+variable selection under competing risks. This approach allows for
+efficient estimation of cause-specific hazards in high-dimensional
+settings.
 
 ## Installation
 
@@ -32,6 +32,7 @@ remotes::install_github("JavierMtzRdz/cbSCRIP")
 ``` r
 library(cbSCRIP)
 library(survival)
+#> Warning: package 'survival' was built under R version 4.5.2
 
 # Generate synthetic competing risks data
 set.seed(123)
@@ -47,24 +48,27 @@ fit <- cbSCRIP(
   Surv(ftime, fstatus) ~ .,
   data = train,
   nlambda = 50,
-  fit_fun = MNlogisticCCD,
+  optimizer = "CCD",
   ratio = 20,
-  coeffs = "original" 
+  coeffs = "original"
 )
 #> ℹ Creating case-base dataset...
 #> ℹ Created base series with 3000 samples based on 150 event(s).
-#> ✔ Calculated lambda_max: 0.0618
-#> ℹ Using 50 lambdas. Range: 0.0000618 to 0.0618
+#> ✔ Calculated lambda_max: 0.0619
+#> ℹ Using 50 lambdas. Range: 0.0000619 to 0.0619
 #> ℹ Fitting model path for 50 lambda values...
+#> Fitting Path ■■■■■■■■■■■■                      36% | ETA:  2s
+#> Fitting Path ■■■■■■■■■■■■■■■■■■■■■■■■■■■■      90% | ETA:  0s
+#> Fitting Path ■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■  100% | ETA:  0s
 #> ✔ Path fitting complete.
 
-# Summary 
+# Summary
 fit
 #> --- Case-Base Competing Risks Model Path ---
 #> 
 #> Call:
 #> cbSCRIP(formula = Surv(ftime, fstatus) ~ ., data = train, nlambda = 50, 
-#>     ratio = 20, coeffs = "original", fit_fun = MNlogisticCCD)
+#>     ratio = 20, coeffs = "original", optimizer = "CCD")
 #> 
 #> Regularization path fit for 50 lambda values.
 #> Number of non-zero coefficients: from 0 to 20.
@@ -89,15 +93,12 @@ cv_fit <- cv_cbSCRIP(
 #> ✔ Calculated lambda_max: 0.0603
 #> ℹ Using 50 lambdas. Range: 0.0000603 to 0.0603
 #> ℹ Starting 3-fold cross-validation...
-#> Warning: package ‘future’ was built under R version 4.5.2
 #> Warning: package ‘purrr’ was built under R version 4.5.2
-#> Warning: package ‘future’ was built under R version 4.5.2
 #> Warning: package ‘purrr’ was built under R version 4.5.2
-#> Warning: package ‘future’ was built under R version 4.5.2
 #> Warning: package ‘purrr’ was built under R version 4.5.2
 #> ✔ Cross-validation complete.
 
-# Summary 
+# Summary
 cv_fit
 #> --- Cross-Validated Case-Base Competing Risks Model ---
 #> 
@@ -111,7 +112,7 @@ cv_fit
 #>   Lambda with minimum deviance (lambda.min): 0.0055
 #>   Largest lambda within 1 SE of min (lambda.1se): 0.0128
 #> 
-#> The final model (fit.min) was fit using lambda.min and has 14 non-zero coefficients.
+#> The final model (fit.min) was fit using lambda.min and has 16 non-zero coefficients.
 
 # Plot
 plot(cv_fit)
