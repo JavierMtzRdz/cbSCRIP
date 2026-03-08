@@ -33,7 +33,7 @@ cause_hazards_sim <- function(p, n, beta1, beta2,
                               nblocks = 4, cor_vals = c(0.7, 0.4, 0.6, 0.5), num.true = 20,
                               lambda01 = 0.55, lambda02 = 0.10,
                               gamma1 = 1.5, gamma2 = 1.5, max_time = 1.5, noise_cor = 0.1,
-                              rate_cens = 0.05, min_time = 1 / 365, exchangeable = FALSE) {
+                              rate_cens = 0.05, min_time = 1e-4, exchangeable = FALSE) {
     if (length(beta1) != p || length(beta2) != p) stop("Length of beta1 and beta2 must match p.")
     if (!exchangeable && nblocks != length(cor_vals)) stop("Length of cor_vals must match nblocks.")
 
@@ -151,7 +151,7 @@ cause_subdist_sim <- function(n, p, beta1, beta2, num.true = 20, mix_p = 0.5,
                               cor_vals = c(0.7, 0.4, 0.6, 0.5), noise_cor = 0.1,
                               nblocks = 4, lambda1 = 1, rho1 = 4,
                               lambda2 = 0.8, rho2 = 10, cens_max = 1.5,
-                              max_time = 1.5, min_time = 1 / 365, exchangeable = FALSE) {
+                              max_time = 1.5, min_time = 1e-4, exchangeable = FALSE) {
     if (length(beta1) != p || length(beta2) != p) stop("Length of beta1 and beta2 must match p.")
 
     if (isTRUE(exchangeable)) {
