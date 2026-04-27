@@ -28,29 +28,30 @@
 MNlogisticCCD <- function(X, Y, offset, N_covariates,
                           regularization = "l1", lambda1, lambda2 = 0, lambda3 = 0,
                           pos = FALSE, # Positivity constraint
-                          tolerance = 1e-6, maxit = 5000, ncores = -1,
+                          tolerance = 1e-6, maxit = 1000, ncores = -1,
                           group_id = NULL, group_weights = NULL, # etaG
                           groups = NULL, groups_var = NULL, # grp, grpV
                           own_variables = NULL, N_own_variables = NULL,
                           param_start = NULL, verbose = FALSE,
-                          save_history = FALSE) {
+                          save_history = FALSE,
+                          lam1_prev = 0.0) {
     nx <- nrow(X)
     if (!is.matrix(X)) X <- as.matrix(X) # Ensure X is a matrix
     if (!is.vector(Y)) Y <- as.vector(Y)
     if (!is.vector(offset)) offset <- as.vector(offset)
     if (nx != length(Y) || nx != length(offset)) {
-        stop("X, Y and offset have different number of observations.")
+        cli::cli_abort("X, Y and offset have different number of observations.")
     }
     n <- nx
     p <- ncol(X)
 
     valid_Y_values <- Y[!is.na(Y) & Y > 0]
-    if (length(valid_Y_values) == 0) stop("Y does not contain any valid positive class labels.")
+    if (length(valid_Y_values) == 0) cli::cli_abort("Y does not contain any valid positive class labels.")
     unique_classes <- unique(valid_Y_values)
     K_val <- length(unique_classes)
 
     if (K_val > 0 && !all(sort(unique_classes) == 1:K_val)) {
-        warning(paste(
+        cli::cli_alert_warning(paste(
             "Classes in Y are:", paste(sort(unique_classes), collapse = ", "),
             ". K is set to", K_val,
             ". Ensure C++ handles these actual Y values (e.g., if they are not 1 to K_val consecutive)."
@@ -81,7 +82,7 @@ MNlogisticCCD <- function(X, Y, offset, N_covariates,
         penalty_code <- 4
     }
     if (penalty_code == 0 && regularization != "none") {
-        stop("The provided regularization is not supported.")
+        cli::cli_abort("The provided regularization is not supported.")
     }
     if (regularization == "none" && penalty_code == 0) penalty_code <- 1
 
@@ -97,14 +98,14 @@ MNlogisticCCD <- function(X, Y, offset, N_covariates,
         if (!is.matrix(groups) || nrow(groups) == 0) groups <- matrix(NA_real_, nrow = 1, ncol = 1)
         if (!is.matrix(groups_var) || nrow(groups_var) == 0) groups_var <- matrix(NA_real_, nrow = 1, ncol = 1)
     } else if (penalty_code == 2) {
-        if (is.null(groups) || nrow(groups) == 0) stop("Required input `groups` is missing for penalty=2.")
-        if (is.null(groups_var) || nrow(groups_var) == 0) stop("Required input `groups_var` is missing for penalty=2.")
-        if (is.null(group_weights) || length(group_weights) == 0) stop("Required input `group_weights` is missing for penalty=2.")
+        if (is.null(groups) || nrow(groups) == 0) cli::cli_abort("Required input `groups` is missing for penalty=2.")
+        if (is.null(groups_var) || nrow(groups_var) == 0) cli::cli_abort("Required input `groups_var` is missing for penalty=2.")
+        if (is.null(group_weights) || length(group_weights) == 0) cli::cli_abort("Required input `group_weights` is missing for penalty=2.")
     } else if (penalty_code == 3) {
-        if (is.null(groups) || nrow(groups) == 0) stop("Required input `groups` is missing for penalty=3.")
-        if (is.null(own_variables) || length(own_variables) == 0) stop("Required input `own_variables` is missing for penalty=3.")
-        if (is.null(N_own_variables) || length(N_own_variables) == 0) stop("Required input `N_own_variables` is missing for penalty=3.")
-        if (is.null(group_weights) || length(group_weights) == 0) stop("Required input `group_weights` is missing for penalty=3.")
+        if (is.null(groups) || nrow(groups) == 0) cli::cli_abort("Required input `groups` is missing for penalty=3.")
+        if (is.null(own_variables) || length(own_variables) == 0) cli::cli_abort("Required input `own_variables` is missing for penalty=3.")
+        if (is.null(N_own_variables) || length(N_own_variables) == 0) cli::cli_abort("Required input `N_own_variables` is missing for penalty=3.")
+        if (is.null(group_weights) || length(group_weights) == 0) cli::cli_abort("Required input `group_weights` is missing for penalty=3.")
     }
 
 
@@ -129,23 +130,19 @@ MNlogisticCCD <- function(X, Y, offset, N_covariates,
         lam2 = as.double(lambda2),
         tolerance = as.double(tolerance),
         maxit = as.integer(maxit),
-        # ncores = as.integer(ncores),
         pos = as.logical(pos),
         param_start = param_start,
-        verbose = verbose
-        # save_history = as.logical(save_history)
+        verbose = verbose,
+        lam1_prev = as.double(lam1_prev)
     )
 
-    if (inherits(result$`Sparse Estimates`, "sparseMatrix")) {
-        nzc <- Matrix::nnzero(result$`Sparse Estimates`)
-    } else {
-        nzc <- sum(result$`Sparse Estimates` != 0)
-    }
+    sparse_est <- Matrix::Matrix(result$Estimates, sparse = TRUE)
+    nzc <- sum(abs(result$Estimates) > 1e-8)
 
     return(list(
         coefficients = result$Estimates,
-        coefficients_sparse = result$`Sparse Estimates`,
-        coefficients_history = result$History, # Renamed for clarity
+        coefficients_sparse = sparse_est,
+        coefficients_history = NULL, # History not saved by CCD
         converged = result$Converged,
         convergence_pass = result$`Convergence Iteration`,
         no_non_zero = nzc
@@ -188,31 +185,33 @@ MNlogisticSAGAN <- function(X, Y, offset, N_covariates,
                             pos = FALSE, #  Positivity constraint
                             tolerance = 1e-4,
                             # niter_inner_mtplyr = 2,
-                            maxit = 100, ncores = -1,
+                            maxit = 1000, ncores = -1,
                             lr_adj = 1,
                             learning_rate = 1,
+                            optimizer = "SAGA",
                             group_id = NULL, group_weights = NULL, # etaG
                             groups = NULL, groups_var = NULL, # grp, grpV
                             own_variables = NULL, N_own_variables = NULL,
                             param_start = NULL, verbose = FALSE,
-                            save_history = FALSE) {
+                            save_history = FALSE,
+                            lam1_prev = 0.0) {
     nx <- nrow(X)
     if (!is.matrix(X)) X <- as.matrix(X) # Ensure X is a matrix
     if (!is.vector(Y)) Y <- as.vector(Y)
     if (!is.vector(offset)) offset <- as.vector(offset)
     if (nx != length(Y) || nx != length(offset)) {
-        stop("X, Y and offset have different number of observations.")
+        cli::cli_abort("X, Y and offset have different number of observations.")
     }
     n <- nx
     p <- ncol(X)
 
     valid_Y_values <- Y[!is.na(Y) & Y > 0]
-    if (length(valid_Y_values) == 0) stop("Y does not contain any valid positive class labels.")
+    if (length(valid_Y_values) == 0) cli::cli_abort("Y does not contain any valid positive class labels.")
     unique_classes <- unique(valid_Y_values)
     K_val <- length(unique_classes)
 
     if (K_val > 0 && !all(sort(unique_classes) == 1:K_val)) {
-        warning(paste(
+        cli::cli_alert_warning(paste(
             "Classes in Y are:", paste(sort(unique_classes), collapse = ", "),
             ". K is set to", K_val,
             ". Ensure C++ handles these actual Y values (e.g., if they are not 1 to K_val consecutive)."
@@ -243,7 +242,7 @@ MNlogisticSAGAN <- function(X, Y, offset, N_covariates,
         penalty_code <- 4
     }
     if (penalty_code == 0 && regularization != "none") {
-        stop("The provided regularization is not supported.")
+        cli::cli_abort("The provided regularization is not supported.")
     }
     if (regularization == "none" && penalty_code == 0) penalty_code <- 1
 
@@ -259,14 +258,14 @@ MNlogisticSAGAN <- function(X, Y, offset, N_covariates,
         if (!is.matrix(groups) || nrow(groups) == 0) groups <- matrix(NA_real_, nrow = 1, ncol = 1)
         if (!is.matrix(groups_var) || nrow(groups_var) == 0) groups_var <- matrix(NA_real_, nrow = 1, ncol = 1)
     } else if (penalty_code == 2) {
-        if (is.null(groups) || nrow(groups) == 0) stop("Required input `groups` is missing for penalty=2.")
-        if (is.null(groups_var) || nrow(groups_var) == 0) stop("Required input `groups_var` is missing for penalty=2.")
-        if (is.null(group_weights) || length(group_weights) == 0) stop("Required input `group_weights` is missing for penalty=2.")
+        if (is.null(groups) || nrow(groups) == 0) cli::cli_abort("Required input `groups` is missing for penalty=2.")
+        if (is.null(groups_var) || nrow(groups_var) == 0) cli::cli_abort("Required input `groups_var` is missing for penalty=2.")
+        if (is.null(group_weights) || length(group_weights) == 0) cli::cli_abort("Required input `group_weights` is missing for penalty=2.")
     } else if (penalty_code == 3) {
-        if (is.null(groups) || nrow(groups) == 0) stop("Required input `groups` is missing for penalty=3.")
-        if (is.null(own_variables) || length(own_variables) == 0) stop("Required input `own_variables` is missing for penalty=3.")
-        if (is.null(N_own_variables) || length(N_own_variables) == 0) stop("Required input `N_own_variables` is missing for penalty=3.")
-        if (is.null(group_weights) || length(group_weights) == 0) stop("Required input `group_weights` is missing for penalty=3.")
+        if (is.null(groups) || nrow(groups) == 0) cli::cli_abort("Required input `groups` is missing for penalty=3.")
+        if (is.null(own_variables) || length(own_variables) == 0) cli::cli_abort("Required input `own_variables` is missing for penalty=3.")
+        if (is.null(N_own_variables) || length(N_own_variables) == 0) cli::cli_abort("Required input `N_own_variables` is missing for penalty=3.")
+        if (is.null(group_weights) || length(group_weights) == 0) cli::cli_abort("Required input `group_weights` is missing for penalty=3.")
     }
 
 
@@ -294,20 +293,18 @@ MNlogisticSAGAN <- function(X, Y, offset, N_covariates,
         # ncores = as.integer(ncores),
         pos = as.logical(pos),
         param_start = param_start,
-        verbose = verbose
+        verbose = verbose,
         # save_history = as.logical(save_history)
+        lam1_prev = as.double(lam1_prev)
     )
 
-    if (inherits(result$`Sparse Estimates`, "sparseMatrix")) {
-        nzc <- Matrix::nnzero(result$`Sparse Estimates`)
-    } else {
-        nzc <- sum(result$`Sparse Estimates` != 0)
-    }
+    sparse_est <- Matrix::Matrix(result$Estimates, sparse = TRUE)
+    nzc <- sum(abs(result$Estimates) > 1e-8)
 
     return(list(
         coefficients = result$Estimates,
-        coefficients_sparse = result$`Sparse Estimates`,
-        coefficients_history = result$History, # Renamed for clarity
+        coefficients_sparse = sparse_est,
+        coefficients_history = NULL, # History not saved by SAGA
         converged = result$Converged,
         convergence_pass = result$`Convergence Iteration`,
         no_non_zero = nzc
@@ -350,7 +347,7 @@ MNlogisticSVRG <- function(X, Y, offset, N_covariates,
                            lambda1, lambda2 = 0, lambda3 = 0,
                            pos = FALSE, #  Positivity constraint
                            tolerance = 1e-4,
-                           maxit = 500, ncores = -1,
+                           maxit = 1000, ncores = -1,
                            lr_adj = 1,
                            learning_rate = 1,
                            update_prob = NULL, # Default 1/n
@@ -358,24 +355,25 @@ MNlogisticSVRG <- function(X, Y, offset, N_covariates,
                            groups = NULL, groups_var = NULL, # grp, grpV
                            own_variables = NULL, N_own_variables = NULL,
                            param_start = NULL, verbose = FALSE,
-                           save_history = FALSE) {
+                           save_history = FALSE,
+                           lam1_prev = 0.0) {
     nx <- nrow(X)
     if (!is.matrix(X)) X <- as.matrix(X) # Ensure X is a matrix
     if (!is.vector(Y)) Y <- as.vector(Y)
     if (!is.vector(offset)) offset <- as.vector(offset)
     if (nx != length(Y) || nx != length(offset)) {
-        stop("X, Y and offset have different number of observations.")
+        cli::cli_abort("X, Y and offset have different number of observations.")
     }
     n <- nx
     p <- ncol(X)
 
     valid_Y_values <- Y[!is.na(Y) & Y > 0]
-    if (length(valid_Y_values) == 0) stop("Y does not contain any valid positive class labels.")
+    if (length(valid_Y_values) == 0) cli::cli_abort("Y does not contain any valid positive class labels.")
     unique_classes <- unique(valid_Y_values)
     K_val <- length(unique_classes)
 
     if (K_val > 0 && !all(sort(unique_classes) == 1:K_val)) {
-        warning(paste(
+        cli::cli_alert_warning(paste(
             "Classes in Y are:", paste(sort(unique_classes), collapse = ", "),
             ". K is set to", K_val,
             ". Ensure C++ handles these actual Y values (e.g., if they are not 1 to K_val consecutive)."
@@ -405,7 +403,7 @@ MNlogisticSVRG <- function(X, Y, offset, N_covariates,
         penalty_code <- 4
     }
     if (penalty_code == 0 && regularization != "none") {
-        stop("The provided regularization is not supported.")
+        cli::cli_abort("The provided regularization is not supported.")
     }
     if (regularization == "none" && penalty_code == 0) penalty_code <- 1
 
@@ -420,14 +418,14 @@ MNlogisticSVRG <- function(X, Y, offset, N_covariates,
         if (!is.matrix(groups) || nrow(groups) == 0) groups <- matrix(NA_real_, nrow = 1, ncol = 1)
         if (!is.matrix(groups_var) || nrow(groups_var) == 0) groups_var <- matrix(NA_real_, nrow = 1, ncol = 1)
     } else if (penalty_code == 2) {
-        if (is.null(groups) || nrow(groups) == 0) stop("Required input `groups` is missing for penalty=2.")
-        if (is.null(groups_var) || nrow(groups_var) == 0) stop("Required input `groups_var` is missing for penalty=2.")
-        if (is.null(group_weights) || length(group_weights) == 0) stop("Required input `group_weights` is missing for penalty=2.")
+        if (is.null(groups) || nrow(groups) == 0) cli::cli_abort("Required input `groups` is missing for penalty=2.")
+        if (is.null(groups_var) || nrow(groups_var) == 0) cli::cli_abort("Required input `groups_var` is missing for penalty=2.")
+        if (is.null(group_weights) || length(group_weights) == 0) cli::cli_abort("Required input `group_weights` is missing for penalty=2.")
     } else if (penalty_code == 3) {
-        if (is.null(groups) || nrow(groups) == 0) stop("Required input `groups` is missing for penalty=3.")
-        if (is.null(own_variables) || length(own_variables) == 0) stop("Required input `own_variables` is missing for penalty=3.")
-        if (is.null(N_own_variables) || length(N_own_variables) == 0) stop("Required input `N_own_variables` is missing for penalty=3.")
-        if (is.null(group_weights) || length(group_weights) == 0) stop("Required input `group_weights` is missing for penalty=3.")
+        if (is.null(groups) || nrow(groups) == 0) cli::cli_abort("Required input `groups` is missing for penalty=3.")
+        if (is.null(own_variables) || length(own_variables) == 0) cli::cli_abort("Required input `own_variables` is missing for penalty=3.")
+        if (is.null(N_own_variables) || length(N_own_variables) == 0) cli::cli_abort("Required input `N_own_variables` is missing for penalty=3.")
+        if (is.null(group_weights) || length(group_weights) == 0) cli::cli_abort("Required input `group_weights` is missing for penalty=3.")
     }
 
     X <- as.matrix(X)
@@ -454,11 +452,91 @@ MNlogisticSVRG <- function(X, Y, offset, N_covariates,
         max_lr = as.double(learning_rate),
         maxit = as.integer(maxit),
         verbose = verbose,
-        param_start = param_start
+        param_start = param_start,
+        lam1_prev = as.double(lam1_prev)
     )
 
     # SVRG returns estimates directly
     # Construct sparse matrix for compatibility
+    sparse_est <- Matrix::Matrix(result$Estimates, sparse = TRUE)
+    nzc <- sum(abs(result$Estimates) > 1e-8)
+
+    return(list(
+        coefficients = result$Estimates,
+        coefficients_sparse = sparse_est,
+        converged = result$Converged,
+        convergence_pass = result$`Convergence Iteration`,
+        no_non_zero = nzc
+    ))
+}
+
+#' Multinomial Logistic Regression with FISTA
+#'
+#' Fits a multinomial logistic regression model with L1/L2 or SCAD regularization
+#' using FISTA (Fast Iterative Shrinkage-Thresholding Algorithm).
+#'
+#' @inheritParams MNlogisticSAGAN
+#' @return A list with model results.
+#' @export
+MNlogisticFISTA <- function(X, Y, offset, N_covariates,
+                            regularization = "l1", transpose = FALSE,
+                            lambda1, lambda2 = 0, lambda3 = 0,
+                            pos = FALSE,
+                            tolerance = 1e-5,
+                            maxit = 1000, ncores = -1,
+                            lr_adj = 1,
+                            learning_rate = 1,
+                            group_id = NULL, group_weights = NULL,
+                            groups = NULL, groups_var = NULL,
+                            own_variables = NULL, N_own_variables = NULL,
+                            param_start = NULL, verbose = FALSE,
+                            save_history = FALSE,
+                            lam1_prev = 0.0) {
+    nx <- nrow(X)
+    if (!is.matrix(X)) X <- as.matrix(X)
+    if (!is.vector(Y)) Y <- as.vector(Y)
+    if (!is.vector(offset)) offset <- as.vector(offset)
+    if (nx != length(Y) || nx != length(offset)) {
+        cli::cli_abort("X, Y and offset have different number of observations.")
+    }
+    n <- nx
+    p <- ncol(X)
+
+    valid_Y_values <- Y[!is.na(Y) & Y > 0]
+    if (length(valid_Y_values) == 0) cli::cli_abort("Y does not contain any valid positive class labels.")
+    unique_classes <- unique(valid_Y_values)
+    K_val <- length(unique_classes)
+
+    pen1 <- c("l1", "elastic-net", "elastic.net", "lasso", "Lasso", "LASSO", "ElasticNet", "Elastic-Net")
+    pen4 <- c("SCAD", "scad", "Scad")
+
+    if (regularization %in% pen1) {
+        penalty_code <- 1
+    } else if (regularization %in% pen4) {
+        penalty_code <- 4
+    } else {
+        cli::cli_abort("FISTA only supports L1/Elastic Net or SCAD penalties.")
+    }
+
+    X <- as.matrix(X)
+    Y <- as.integer(Y)
+    offset <- as.double(offset)
+
+    result <- MultinomLogisticFISTA(
+        X = X, Y = Y, offset = offset, K = K_val,
+        penalty = as.integer(penalty_code),
+        reg_p = as.integer(p - N_covariates),
+        lam1 = as.double(lambda1),
+        lam2 = as.double(lambda2),
+        tolerance = as.double(tolerance),
+        maxit = as.integer(maxit),
+        lr_adj = as.double(lr_adj),
+        verbose = verbose,
+        pos = pos,
+        param_start = param_start,
+        lam1_prev = as.double(lam1_prev)
+    )
+
     sparse_est <- Matrix::Matrix(result$Estimates, sparse = TRUE)
     nzc <- sum(abs(result$Estimates) > 1e-8)
 
