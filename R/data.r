@@ -2,6 +2,56 @@ weibull_hazard <- Vectorize(function(gamma, lambda, t) {
     return(gamma * lambda * t^(gamma - 1))
 })
 
+#' Covariate Correlation Matrix Used by the Simulation Engines
+#'
+#' Both simulation engines and [gen_data()] must agree on this matrix, since
+#' the signal rescaling in [gen_data()] is computed from it.
+#'
+#' @param p Integer, total number of covariates.
+#' @param num.true Integer, number of non-zero ("true") covariates.
+#' @param exchangeable Logical, if TRUE use an exchangeable structure among the
+#'   true covariates instead of a block-diagonal one.
+#' @param nblocks Integer, number of blocks for the block-diagonal structure.
+#' @param cor_vals Numeric vector of length `nblocks`, correlation per block.
+#' @param noise_cor Numeric, correlation among the remaining covariates.
+#' @return A `p` by `p` correlation matrix.
+#' @keywords internal
+sim_cor_matrix <- function(p, num.true, exchangeable = FALSE, nblocks = 4,
+                           cor_vals = c(0.7, 0.4, 0.6, 0.5), noise_cor = 0.1) {
+    mat <- matrix(noise_cor, nrow = p, ncol = p)
+    if (isTRUE(exchangeable)) {
+        mat[1:num.true, 1:num.true] <- 0.5
+    } else {
+        vpb <- num.true / nblocks
+        for (i in seq_len(nblocks)) {
+            idx <- ((i - 1) * vpb + 1):(i * vpb)
+            mat[idx, idx] <- cor_vals[i]
+        }
+    }
+    diag(mat) <- 1
+    mat
+}
+
+#' Rescale a Coefficient Vector to a Target Signal Strength
+#'
+#' Returns `beta` rescaled so that `sd(X %*% beta) == signal_sd` under the
+#' covariate correlation matrix `Sigma`. The support is unchanged, so
+#' variable-selection ground truth is unaffected. An all-zero `beta` is
+#' returned as-is.
+#'
+#' @param beta Numeric coefficient vector.
+#' @param Sigma Covariate correlation matrix from [sim_cor_matrix()].
+#' @param signal_sd Numeric, target standard deviation of the linear predictor.
+#' @return The rescaled coefficient vector.
+#' @keywords internal
+scale_signal <- function(beta, Sigma, signal_sd) {
+    s <- sqrt(drop(crossprod(beta, Sigma %*% beta)))
+    if (!is.finite(s) || s <= 0) {
+        return(beta)
+    }
+    beta * (signal_sd / s)
+}
+
 #' Simulate Competing Risks Data from Cause-Specific Hazards
 #'
 #' This function generates competing risks survival data using the cause-specific
@@ -38,25 +88,12 @@ cause_hazards_sim <- function(p, n, beta1, beta2,
     if (!exchangeable && nblocks != length(cor_vals)) stop("Length of cor_vals must match nblocks.")
 
     # Covariate Generation
-    if (isTRUE(exchangeable)) {
-        # Exchangeable correlation structure
-        mat <- matrix(noise_cor, nrow = p, ncol = p)
-        cor_exchangeable <- 0.5
-        mat[1:num.true, 1:num.true] <- cor_exchangeable
-        diag(mat) <- 1
-        X <- mvtnorm::rmvnorm(n, mean = rep(0, p), sigma = mat)
-    } else {
-        # Block-diagonal correlation structure
-        vpb <- num.true / nblocks
-        correlation_matrix <- matrix(noise_cor, nrow = p, ncol = p)
-        for (i in 1:nblocks) {
-            start_index <- (i - 1) * vpb + 1
-            end_index <- i * vpb
-            correlation_matrix[start_index:end_index, start_index:end_index] <- cor_vals[i]
-        }
-        diag(correlation_matrix) <- 1
-        X <- mvtnorm::rmvnorm(n, mean = rep(0, p), sigma = correlation_matrix)
-    }
+    correlation_matrix <- sim_cor_matrix(
+        p, num.true,
+        exchangeable = exchangeable, nblocks = nblocks,
+        cor_vals = cor_vals, noise_cor = noise_cor
+    )
+    X <- mvtnorm::rmvnorm(n, mean = rep(0, p), sigma = correlation_matrix)
 
     # vent Time Generation
     # Calculate individual-specific rate parameters
@@ -154,25 +191,12 @@ cause_subdist_sim <- function(n, p, beta1, beta2, num.true = 20, mix_p = 0.5,
                               max_time = 1.5, min_time = 1e-4, exchangeable = FALSE) {
     if (length(beta1) != p || length(beta2) != p) stop("Length of beta1 and beta2 must match p.")
 
-    if (isTRUE(exchangeable)) {
-        # Exchangeable correlation structure
-        mat <- matrix(noise_cor, nrow = p, ncol = p)
-        cor_exchangeable <- 0.5
-        mat[1:num.true, 1:num.true] <- cor_exchangeable
-        diag(mat) <- 1
-        X <- mvtnorm::rmvnorm(n, mean = rep(0, p), sigma = mat)
-    } else {
-        # Block-diagonal correlation structure
-        vpb <- num.true / nblocks
-        correlation_matrix <- matrix(noise_cor, nrow = p, ncol = p)
-        for (i in 1:nblocks) {
-            start_index <- (i - 1) * vpb + 1
-            end_index <- i * vpb
-            correlation_matrix[start_index:end_index, start_index:end_index] <- cor_vals[i]
-        }
-        diag(correlation_matrix) <- 1
-        X <- mvtnorm::rmvnorm(n, mean = rep(0, p), sigma = correlation_matrix)
-    }
+    correlation_matrix <- sim_cor_matrix(
+        p, num.true,
+        exchangeable = exchangeable, nblocks = nblocks,
+        cor_vals = cor_vals, noise_cor = noise_cor
+    )
+    X <- mvtnorm::rmvnorm(n, mean = rep(0, p), sigma = correlation_matrix)
 
     eta1_prob <- X %*% beta1
     prob_not_cause1 <- (1 - mix_p)^exp(eta1_prob)
@@ -247,6 +271,10 @@ cause_subdist_sim <- function(n, p, beta1, beta2, num.true = 20, mix_p = 0.5,
 #' @param setting Integer (1-5), the simulation setting to use.
 #' @param iter Integer, the seed for the simulation run for reproducibility.
 #' @param sims Integer, optional, the total number of simulations for display purposes.
+#' @param signal_sd Numeric, the target standard deviation of the linear
+#'   predictor `X %*% beta` for each cause. The setting's coefficient pattern is
+#'   rescaled to hit this value so that signal strength stays comparable across
+#'   `p` and `num_true`. Set to `NULL` to use the raw pattern.
 #'
 #' @return A list containing:
 #' \item{train}{A data.frame for the training set (size n_train).}
@@ -258,7 +286,8 @@ cause_subdist_sim <- function(n, p, beta1, beta2, num.true = 20, mix_p = 0.5,
 #' @export
 gen_data <- function(n_train = 300, n_test = 100, p = 300,
                      num_true = 20, setting = 1,
-                     iter = stats::runif(1, 0, 9e5), sims = NULL) {
+                     iter = stats::runif(1, 0, 9e5), sims = NULL,
+                     signal_sd = 2) {
     set.seed(iter)
     seed <- as.integer(paste(sample.int(9, 5, replace = TRUE), collapse = ""))
     set.seed(seed)
@@ -298,7 +327,14 @@ gen_data <- function(n_train = 300, n_test = 100, p = 300,
         beta1[nu_ind] <- 1
         beta2[nu_ind] <- -1
     } else {
-        stop("'setting' must be an integer between 1 and 5.")
+        cli::cli_abort("'setting' must be an integer between 1 and 5.")
+    }
+
+    # Hold the signal strength fixed as p and k grow. 
+    if (!is.null(signal_sd)) {
+        cor_mat <- sim_cor_matrix(p, k, exchangeable = setting %in% c(1, 5))
+        beta1 <- scale_signal(beta1, cor_mat, signal_sd)
+        beta2 <- scale_signal(beta2, cor_mat, signal_sd)
     }
 
     # Data Simulation
