@@ -1,5 +1,5 @@
 #' @importFrom survival Surv
-#' @importFrom glmnet glmnet predict.glmnet
+#' @importFrom glmnet glmnet predict.glmnet cv.glmnet
 #' @importFrom stats approx
 NULL
 
@@ -29,7 +29,6 @@ oneCSlasso <- function(data, cause, lambdavec, var_time = "ftime",
     y <- survival::Surv(data[[var_time]], data[[var_status]] == cause)
     
     glmnet.res <- glmnet::glmnet(x = X, y = y, alpha = 0.5, standardize = FALSE,
-                                 nfold = 5, 
                                  lambda = lambdavec,
                                  family = "cox", ...)
     
@@ -89,11 +88,54 @@ twoCSlassos <- function(data, lambdavecs, ...){
 #' @return An object of class \code{twoCSlassos}.
 #' @export
 two.i.CSlassos <- function(data, nlambda = 100, lambda_min_ratio = 1e-4, ...) {
-    
     # Create a default log-linear lambda grid
-    lv <- exp(seq(log(lambda_min_ratio), 0, length.out = nlambda))
+    lv <- rev(exp(seq(log(lambda_min_ratio), 0, length.out = nlambda)))
     
     twoCSlassos(data = data, lambdavecs = list(lv, lv), ...)
+}
+
+#' Fit Two Cause-Specific Lasso Models with Cross-Validation
+#'
+#' Fits two separate cause-specific Cox models, selecting the optimal
+#' lambda penalty for each cause using cross-validation via \code{\link[glmnet]{cv.glmnet}}.
+#'
+#' @param data A data.frame containing survival time, status, and covariates.
+#' @param nfold Number of folds for cross-validation. Defaults to 5.
+#' @param var_time The column name for the survival time.
+#' @param var_status The column name for the event status.
+#' @param lambda.select Character string specifying which optimal lambda to select.
+#'   Either "lambda.min" (default) or "lambda.1se".
+#' @param ... Additional arguments passed to \code{\link[glmnet]{cv.glmnet}} or \code{\link{oneCSlasso}}.
+#'
+#' @return An object of class \code{twoCSlassos} containing the fitted models using the selected optimal lambdas.
+#' @export
+two.cv.CSlassos <- function(data, nfold = 5, var_time = "ftime",
+                            var_status = "fstatus", lambda.select = c("lambda.min", "lambda.1se"), ...) {
+    
+    lambda.select <- match.arg(lambda.select)
+    data <- data.frame(data)
+    vars <- colnames(data)[(!colnames(data) %in% c(var_time, var_status))]
+    X <- as.matrix(data[, vars])
+    
+    # Run cv.glmnet for Cause 1
+    y1 <- survival::Surv(data[[var_time]], data[[var_status]] == 1)
+    cv1 <- glmnet::cv.glmnet(x = X, y = y1, family = "cox", alpha = 0.5, standardize = FALSE, nfolds = nfold, ...)
+    lambda1 <- cv1[[lambda.select]]
+    
+    # Run cv.glmnet for Cause 2
+    y2 <- survival::Surv(data[[var_time]], data[[var_status]] == 2)
+    cv2 <- glmnet::cv.glmnet(x = X, y = y2, family = "cox", alpha = 0.5, standardize = FALSE, nfolds = nfold, ...)
+    lambda2 <- cv2[[lambda.select]]
+    
+    # Fit the final models using the selected lambdas
+    fit <- twoCSlassos(data = data, lambdavecs = list(lambda1, lambda2),
+                       var_time = var_time, var_status = var_status, ...)
+    
+    # Store CV results for introspection
+    fit$cv_models <- list('Cause 1' = cv1, 'Cause 2' = cv2)
+    fit$call <- match.call()
+    
+    return(fit)
 }
 
 #' Select Penalties for twoCSlassos
