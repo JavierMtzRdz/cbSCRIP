@@ -33,7 +33,7 @@ prepare_penalty_params <- function(regularization, lambda, alpha) {
                 alpha <- 3.7
             }
             # Return lambda and the shape parameter
-            list(lambda1 = lambda, lambda2 = alpha)
+            list(lambda1 = lambda, lambda2 = alpha, alpha = alpha)
         },
     )
 }
@@ -81,8 +81,14 @@ penalty_params_notif <- function(regularization, alpha) {
 #' @return A list containing the components of the case-base dataset: `time`,
 #'   `event`, `covariates`, and `offset`.
 #' @export
-create_cb_data <- function(formula, data, ratio = 20, ratio_event = "all") {
+create_cb_data <- function(formula, data, ratio = 50, ratio_event = "all") {
     data <- data.frame(data)
+
+    all_formula_vars <- all.vars(formula)
+    if (!all(all_formula_vars %in% names(data))) {
+        cli::cli_abort("Some variables in formula were not found in data.")
+    }
+    data <- data[stats::complete.cases(data[, all_formula_vars, drop = FALSE]), , drop = FALSE]
 
     response_vars <- all.vars(formula[[2]])
 
@@ -104,14 +110,12 @@ create_cb_data <- function(formula, data, ratio = 20, ratio_event = "all") {
 
     cov_matrix <- stats::model.matrix(
         stats::as.formula(formula[-2]),
-        data[!(names(data) %in%
-            c(
-                status_var,
-                time_var
-            ))]
-    )[, -1,
-        drop = FALSE
-    ]
+        data[!(names(data) %in% c(status_var, time_var))]
+    )
+    intercept_idx <- which(colnames(cov_matrix) == "(Intercept)")
+    if (length(intercept_idx) > 0) {
+        cov_matrix <- cov_matrix[, -intercept_idx, drop = FALSE]
+    }
 
     # Determine which events to use for the base series ratio
 
@@ -223,18 +227,23 @@ unstandardize_coefficients <- function(coefficients, scaler, col_names) {
 
     coefs_scaled <- coefficients
 
-    beta_covs_scaled <- coefs_scaled[1:p_covs, , drop = FALSE]
+    beta_covs_scaled <- coefs_scaled[seq_len(p_covs), , drop = FALSE]
     time_coef <- coefs_scaled[p_covs + 1, , drop = FALSE]
     intercept_scaled <- coefs_scaled[p_covs + 2, , drop = FALSE]
 
     beta_covs_orig <- beta_covs_scaled / scaler$scale
-    intercept_adj <- colSums(beta_covs_scaled * (scaler$center / scaler$scale))
+    if (p_covs == 0) {
+        intercept_adj <- rep(0, ncol(coefs_scaled))
+    } else {
+        intercept_adj <- colSums(beta_covs_scaled * (scaler$center / scaler$scale))
+    }
     intercept_orig <- intercept_scaled - intercept_adj
 
     coefs_orig <- rbind(beta_covs_orig, time_coef, intercept_orig)
     rownames(coefs_orig) <- c(col_names, "log(time)", "(Intercept)")
 
     return(coefs_orig)
+
 }
 
 #' Fit a Penalized Multinomial Model on Case-Base Data
@@ -257,11 +266,12 @@ unstandardize_coefficients <- function(coefficients, scaler, col_names) {
 fit_cb_model <- function(cb_data,
                          regularization = c("elastic-net", "SCAD"),
                          lambda, alpha = NULL,
-                         optimizer = c("CCD", "SAGA", "SVRG"),
+                         optimizer = c("CCD", "FISTA", "SAGA", "SVRG"),
                          param_start = NULL,
                          n_unpenalized = 2,
                          standardize = TRUE,
                          all_event_levels = NULL,
+                         lam1_prev = 0.0,
                          ...) {
     # Load libraries efficiently
     if (!requireNamespace("Matrix", quietly = TRUE)) cli::cli_abort("Matrix package required")
@@ -273,8 +283,14 @@ fit_cb_model <- function(cb_data,
     fit_fun <- switch(optimizer,
         "CCD" = MNlogisticCCD,
         "SAGA" = MNlogisticSAGAN,
-        "SVRG" = MNlogisticSVRG
+        "SVRG" = MNlogisticSVRG,
+        "FISTA" = MNlogisticFISTA
     )
+
+    if (lambda <= 0) {
+        # Safe fallback: small enough to not heavily penalize, but large enough to prevent complete separation divergence
+        lambda <- 1e-8
+    }
 
     penalty_params <- prepare_penalty_params(regularization, lambda, alpha)
 
@@ -299,20 +315,17 @@ fit_cb_model <- function(cb_data,
         penalized_covs <- cb_data$covariates # Update local reference
 
         if (!is.null(param_start)) {
-            beta_raw <- param_start[1:p_covs, , drop = FALSE]
+            if (p_covs > 0) {
+                beta_raw <- param_start[seq_len(p_covs), , drop = FALSE]
+                beta_scaled <- beta_raw * scaler$scale
+                intercept_adj <- colSums(beta_raw * scaler$center)
+                param_start[seq_len(p_covs), ] <- beta_scaled
+            } else {
+                intercept_adj <- rep(0, ncol(param_start))
+            }
 
             intercept_raw <- param_start[p_covs + 2, , drop = FALSE]
-
-            # Scale beta
-            beta_scaled <- beta_raw * scaler$scale
-
-            # Adjust intercept
-            intercept_adj <- colSums(beta_raw * scaler$center)
             intercept_scaled <- intercept_raw + intercept_adj
-
-            # Update param_start with scaled values
-            param_start[1:p_covs, ] <- beta_scaled
-
             param_start[p_covs + 2, ] <- intercept_scaled
         }
     }
@@ -321,7 +334,7 @@ fit_cb_model <- function(cb_data,
     #                   data = data.frame(cbind(penalized_covs,
     #                                           time = log(cb_data$time))))
 
-    X <- cbind(penalized_covs, "log(time)" = log(cb_data$time), "(Intercept)" = 1)
+    X <- cbind(penalized_covs, "log(time)" = log(pmax(cb_data$time, 1e-8)), "(Intercept)" = 1)
 
     # design matrix
     # X <- as.matrix(cbind(penalized_covs, time = log(cb_data$time), 1))
@@ -333,6 +346,7 @@ fit_cb_model <- function(cb_data,
         lambda1 = penalty_params$lambda1,
         lambda2 = penalty_params$lambda2,
         param_start = param_start,
+        lam1_prev = lam1_prev,
         ...
     )
 
@@ -403,7 +417,7 @@ print.cbSCRIP <- function(x, ..., print_limit = 10) {
     }
 
     # Convert the wide coefficient matrix
-    long_coefs <- as.data.frame(as.table(coefs, base = list(NUMBERS)))
+    long_coefs <- as.data.frame(as.table(coefs))
     long_coefs$Var2 <- as.numeric(as.factor(long_coefs$Var2))
     colnames(long_coefs) <- c("Variable", "Cause", "Coefficient")
 
