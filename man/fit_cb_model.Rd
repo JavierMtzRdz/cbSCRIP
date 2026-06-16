@@ -9,11 +9,12 @@ fit_cb_model(
   regularization = c("elastic-net", "SCAD"),
   lambda,
   alpha = NULL,
-  fit_fun = MNlogisticSAGAN,
+  optimizer = c("CCD", "FISTA", "SAGA", "SVRG"),
   param_start = NULL,
   n_unpenalized = 2,
   standardize = TRUE,
   all_event_levels = NULL,
+  lam1_prev = 0,
   ...
 )
 }
@@ -26,8 +27,6 @@ fit_cb_model(
 
 \item{alpha}{The mixing/shape parameter. See \code{prepare_penalty_params}.}
 
-\item{fit_fun}{The fitting function from \code{cbSCRIP} to use.}
-
 \item{param_start}{Optional starting values for the coefficients.}
 
 \item{n_unpenalized}{Integer. The number of leading covariates to leave unpenalized.}
@@ -37,6 +36,8 @@ fit_cb_model(
 \item{all_event_levels}{Optional vector of all event levels.}
 
 \item{...}{Additional arguments passed to the fitting function.}
+
+\item{fit_fun}{The fitting function from \code{cbSCRIP} to use.}
 }
 \value{
 The fitted model object from the specified \code{fit_fun}.

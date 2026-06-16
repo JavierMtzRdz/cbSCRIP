@@ -16,10 +16,11 @@ MNlogisticSAGAN(
   lambda3 = 0,
   pos = FALSE,
   tolerance = 1e-04,
-  maxit = 100,
+  maxit = 1000,
   ncores = -1,
   lr_adj = 1,
   learning_rate = 1,
+  optimizer = "SAGA",
   group_id = NULL,
   group_weights = NULL,
   groups = NULL,
@@ -28,7 +29,8 @@ MNlogisticSAGAN(
   N_own_variables = NULL,
   param_start = NULL,
   verbose = FALSE,
-  save_history = FALSE
+  save_history = FALSE,
+  lam1_prev = 0
 )
 }
 \arguments{

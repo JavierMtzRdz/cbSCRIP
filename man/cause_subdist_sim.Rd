@@ -20,7 +20,7 @@ cause_subdist_sim(
   rho2 = 10,
   cens_max = 1.5,
   max_time = 1.5,
-  min_time = 1/365,
+  min_time = 1e-04,
   exchangeable = FALSE
 )
 }

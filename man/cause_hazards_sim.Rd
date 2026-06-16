@@ -19,7 +19,7 @@ cause_hazards_sim(
   max_time = 1.5,
   noise_cor = 0.1,
   rate_cens = 0.05,
-  min_time = 1/365,
+  min_time = 1e-04,
   exchangeable = FALSE
 )
 }

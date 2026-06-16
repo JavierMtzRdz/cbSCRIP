@@ -11,7 +11,8 @@ gen_data(
   num_true = 20,
   setting = 1,
   iter = stats::runif(1, 0, 9e+05),
-  sims = NULL
+  sims = NULL,
+  signal_sd = 2
 )
 }
 \arguments{
@@ -28,6 +29,11 @@ gen_data(
 \item{iter}{Integer, the seed for the simulation run for reproducibility.}
 
 \item{sims}{Integer, optional, the total number of simulations for display purposes.}
+
+\item{signal_sd}{Numeric, the target standard deviation of the linear
+predictor \code{X \%*\% beta} for each cause. The setting's coefficient pattern is
+rescaled to hit this value so that signal strength stays comparable across
+\code{p} and \code{num_true}. Set to \code{NULL} to use the raw pattern.}
 }
 \value{
 A list containing:

@@ -15,7 +15,7 @@ MNlogisticCCD(
   lambda3 = 0,
   pos = FALSE,
   tolerance = 1e-06,
-  maxit = 5000,
+  maxit = 1000,
   ncores = -1,
   group_id = NULL,
   group_weights = NULL,
@@ -25,7 +25,8 @@ MNlogisticCCD(
   N_own_variables = NULL,
   param_start = NULL,
   verbose = FALSE,
-  save_history = FALSE
+  save_history = FALSE,
+  lam1_prev = 0
 )
 }
 \arguments{

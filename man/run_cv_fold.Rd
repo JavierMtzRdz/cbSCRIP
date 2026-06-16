@@ -14,6 +14,7 @@ run_cv_fold(
   n_unpenalized = 2,
   warm_start = TRUE,
   update_f = NULL,
+  optimizer = "CCD",
   ...
 )
 }

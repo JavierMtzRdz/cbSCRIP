@@ -10,7 +10,6 @@ Description: Implements an estimator based on case-base sampling for sparse comp
 License: MIT + file LICENSE
 Encoding: UTF-8
 Roxygen: list(markdown = TRUE)
-RoxygenNote: 7.3.3
 Imports: Rcpp (>= 1.0.5),
          parallel (>= 4.5.0),
          furrr (>= 0.3.1),
@@ -43,3 +42,4 @@ Suggests:
     pracma,
     tictoc
 Config/testthat/edition: 3
+Config/roxygen2/version: 8.0.0

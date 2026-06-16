@@ -20,6 +20,7 @@ cv_cbSCRIP(
   lambda_max = NULL,
   lambda.min.ratio = NULL,
   warm_start = TRUE,
+  optimizer = c("CCD", "SAGA", "SVRG", "FISTA"),
   ...
 )
 }

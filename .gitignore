@@ -20,3 +20,4 @@ misc/
 /inst/cargo.log
 /authors-scratch.txt
 src/rust/vendor
+benchmark/optimizer_benchmark_cache/

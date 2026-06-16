@@ -19,6 +19,7 @@ cbSCRIP(
   lambda.min.ratio = NULL,
   warm_start = TRUE,
   coeffs = c("adjusted", "original"),
+  optimizer = c("CCD", "FISTA", "SAGA", "SVRG"),
   ...
 )
 }
