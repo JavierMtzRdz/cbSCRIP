@@ -276,6 +276,7 @@ run_cv_fold <- function(fold_indices, cb_data,
 #' @param lambda_max Max lambda.
 #' @param lambda.min.ratio Min lambda ratio.
 #' @param warm_start Logical, whether to use warm starts.
+#' @param select Character string specifying whether the final model is fit using `"1se"` (1-standard-error rule) or `"min"` (minimum deviance). Defaults to `"1se"`.
 #' @param ... Additional arguments.
 #' @return An object of class `cb.cv` containing the results.
 #' @export
@@ -290,8 +291,10 @@ cv_cbSCRIP <- function(formula, data, regularization = "elastic-net",
                        lambda_max = NULL,
                        lambda.min.ratio = NULL,
                        warm_start = TRUE,
+                       select = c("1se", "min"),
                        optimizer = c("CCD", "SAGA", "SVRG", "FISTA"),
                        ...) {
+    select <- rlang::arg_match(select)
     if (is.null(cb_data)) {
         cb_data <- create_cb_data(formula, data,
             ratio = ratio,
@@ -382,10 +385,12 @@ cv_cbSCRIP <- function(formula, data, regularization = "elastic-net",
 
     lambda.1se <- max(lambdagrid[mean_dev <= min_dev_upper_bound])
 
-    fit.min <- fit_cb_model(
-        cb_data,
+    lambda.opt <- if (select == "1se") lambda.1se else lambda.min
+
+    fit.opt <- fit_cb_model(
+        cb_data = cb_data,
         regularization = regularization,
-        lambda = lambda.min,
+        lambda = lambda.opt,
         alpha = alpha,
         n_unpenalized = n_unpenalized,
         optimizer = optimizer,
@@ -393,7 +398,9 @@ cv_cbSCRIP <- function(formula, data, regularization = "elastic-net",
     )
 
     result <- list(
-        fit.min = fit.min,
+        fit = fit.opt,
+        select = select,
+        lambda.opt = lambda.opt,
         lambdagrid = lambdagrid,
         deviance_matrix = deviance_matrix,
         non_zero_matrix = non_zero_matrix,
@@ -443,9 +450,11 @@ print.cbSCRIP.cv <- function(x, ...) {
     cat(sprintf("  Largest lambda within 1 SE of min (lambda.1se): %.4f\n\n", x$lambda.1se))
 
     # Report the number of non-zero coefficients for the final fitted model
-    n_nonzero <- sum(x$fit.min$coefficients != 0)
+    sel <- if (!is.null(x$select)) x$select else "min"
+    fit_final <- if (!is.null(x$fit)) x$fit else x$fit.min
+    n_nonzero <- sum(fit_final$coefficients != 0)
     cat(paste0(
-        "The final model (fit.min) was fit using lambda.min and has ",
+        "The final model (fit) was fit using lambda.", sel, " and has ",
         n_nonzero, " non-zero coefficients.\n"
     ))
 
