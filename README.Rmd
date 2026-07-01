@@ -97,9 +97,9 @@ plot(cv_fit)
 - Efficiently handles large-scale survival and competing risks data by transforming it into a multinomial framework.
 - Supports **Lasso** and **Elastic-Net** penalties for variable selection in high-dimensional datasets ($p > n$).
 - **Optimizers**:
-  - `MNlogisticCCD`: Cyclical Coordinate Descent (efficient for sparse paths).
-  - `MNlogisticSAGAN`: Stochastic Average Gradient (SAGA) with Nesterov acceleration.
-  - `MNlogisticSVRG`: Stochastic Variance Reduced Gradient.
+  - "CCD". Cyclical Coordinate Descent (efficient for sparse paths).
+  - "SAGAN". Stochastic Average Gradient (SAGA) with Nesterov acceleration.
+  - "SVRG". Stochastic Variance Reduced Gradient.
 
 ## License
 
