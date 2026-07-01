@@ -278,9 +278,6 @@ Rcpp::List MultinomLogisticCCD(
   bool converged = false;
   int total_iter = 0;
 
-  // We compute Hessian on-demand for the exact Newton step
-  arma::mat X2 = arma::square(X);
-
   // Outer Loop: Active Set Strategy
   // 1. Optimize over Active Set until convergence
   // 2. Check KKT conditions on Inactive Set
@@ -289,7 +286,16 @@ Rcpp::List MultinomLogisticCCD(
 
   int max_outer_iter = 15;
   int newton_maxit = std::min(maxit, 50);
+  std::vector<arma::mat> X_W_cache(K);
   for (int outer = 0; outer < max_outer_iter; ++outer) {
+
+    // The active set only changes at the KKT check below, so build the
+    // sub-design and size the work buffers once per outer pass rather than
+    // reallocating them on every Newton step.
+    arma::uvec active_uvec = arma::conv_to<arma::uvec>::from(active_set);
+    arma::mat X_active = X.cols(active_uvec);
+    for (int k = 0; k < K; ++k)
+      X_W_cache[k].set_size(n, active_set.size());
 
     // --- Newton Loop on Active Set ---
     for (int iter = 1; iter <= newton_maxit; ++iter) {
@@ -309,25 +315,16 @@ Rcpp::List MultinomLogisticCCD(
         }
       }
 
-      // Gradient: Only needed for active set in this loop
-      // Optimization: Compute Grad and Hessian efficiently using BLAS-3
-      arma::uvec active_uvec = arma::conv_to<arma::uvec>::from(active_set);
-      arma::mat X_active = X.cols(active_uvec);
-      
-      arma::mat Grad_active = (X_active.t() * Residuals) / n;
-      
       // 2. Inner Loop: Coordinate Descent on Quadratic Surrogate
       arma::mat W = P % (1.0 - P); // n x K, element-wise
-      
-      // Cache X_W_j for all active variables to speed up DAXPY updates
-      std::vector<arma::mat> X_W_cache(K);
+
+      // Refill X_W_j for all active variables to speed up DAXPY updates
       for (int k = 0; k < K; ++k) {
-        X_W_cache[k].zeros(n, active_set.size());
         for (size_t idx = 0; idx < active_set.size(); ++idx) {
            X_W_cache[k].col(idx) = X_active.col(idx) % W.col(k);
         }
       }
-      
+
       // We still need the diagonal of the Hessian for all active variables.
       arma::mat H_diag(active_set.size(), K, arma::fill::zeros);
       for (size_t idx = 0; idx < active_set.size(); ++idx) {
@@ -360,7 +357,14 @@ Rcpp::List MultinomLogisticCCD(
             double beta_old_jk = param_inner(j, k);
             double current_grad_jk = arma::dot(X_active.col(idx), Working_Residuals.col(k)) / n;
             double h_jk = H_diag(idx, k);
-            
+
+            // H_diag already carries the ridge curvature (+lam2); the matching
+            // ridge gradient must be added here or lam2 cancels out of the
+            // stationarity condition and the solver returns a pure lasso fit.
+            if (penalty == 1 && j < reg_p) {
+              current_grad_jk += lam2 * beta_old_jk;
+            }
+
             double z = beta_old_jk - current_grad_jk / h_jk;
             double beta_new_jk = 0.0;
 
@@ -368,7 +372,7 @@ Rcpp::List MultinomLogisticCCD(
               double thresh = lam1 / h_jk;
               if (z > thresh) beta_new_jk = z - thresh;
               else if (z < -thresh) beta_new_jk = z + thresh;
-            } else if (penalty == 2) { // SCAD
+            } else { // SCAD: R sends code 4, matching apply_prox's "not 1" rule
               double a_scad = (lam2 > 2.0) ? lam2 : 3.7;
               beta_new_jk = scalar_scad_prox(z, lam1 / h_jk, a_scad);
             }

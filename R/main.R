@@ -23,6 +23,8 @@
 #' @param param_start Starting parameters.
 #' @param verbose Verbosity.
 #' @param save_history Save history.
+#' @param lam1_prev Previous `lambda1` on the path, used by the sequential
+#'   strong rules to pre-screen the active set. Ignored on a cold start.
 #' @return A list with model results.
 #' @export
 MNlogisticCCD <- function(X, Y, offset, N_covariates,
@@ -168,6 +170,7 @@ MNlogisticCCD <- function(X, Y, offset, N_covariates,
 #' @param ncores Number of cores.
 #' @param lr_adj Learning rate adjustment.
 #' @param learning_rate Learning rate.
+#' @param optimizer The solver to use: one of "CCD", "FISTA", "SAGA" or "SVRG".
 #' @param group_id Group IDs.
 #' @param group_weights Group weights.
 #' @param groups Groups matrix.
@@ -177,6 +180,8 @@ MNlogisticCCD <- function(X, Y, offset, N_covariates,
 #' @param param_start Starting parameters.
 #' @param verbose Verbosity.
 #' @param save_history Save history.
+#' @param lam1_prev Previous `lambda1` on the path, used by the sequential
+#'   strong rules to pre-screen the active set. Ignored on a cold start.
 #' @return A list with model results.
 #' @export
 MNlogisticSAGAN <- function(X, Y, offset, N_covariates,
@@ -340,6 +345,8 @@ MNlogisticSAGAN <- function(X, Y, offset, N_covariates,
 #' @param param_start Starting parameters.
 #' @param verbose Verbosity.
 #' @param save_history Save history.
+#' @param lam1_prev Previous `lambda1` on the path, used by the sequential
+#'   strong rules to pre-screen the active set. Ignored on a cold start.
 #' @return A list with model results.
 #' @export
 MNlogisticSVRG <- function(X, Y, offset, N_covariates,
