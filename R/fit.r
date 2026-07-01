@@ -79,12 +79,18 @@ penalty_params_notif <- function(regularization, alpha) {
 #'   the total number of all non-censored events.
 #'
 #' @return A list containing the components of the case-base dataset: `time`,
-#'   `event`, `covariates`, and `offset`.
+#'   `event`, `covariates`, `offset`, and `id`, the row of `data` each
+#'   case-base row was drawn from.
 #' @export
 create_cb_data <- function(formula, data, ratio = 50, ratio_event = "all") {
     data <- data.frame(data)
 
+    # `all.vars()` reports the dot in `y ~ .` as a literal name; expand it to the
+    # columns it stands for so dot formulas are not rejected as missing variables.
     all_formula_vars <- all.vars(formula)
+    if ("." %in% all_formula_vars) {
+        all_formula_vars <- union(setdiff(all_formula_vars, "."), names(data))
+    }
     if (!all(all_formula_vars %in% names(data))) {
         cli::cli_abort("Some variables in formula were not found in data.")
     }
@@ -170,12 +176,16 @@ create_cb_data <- function(formula, data, ratio = 50, ratio_event = "all") {
     final_event[(n_b + 1):total_rows] <- status[case_indices]
     final_covs[(n_b + 1):total_rows, ] <- cov_matrix[case_indices, , drop = FALSE]
 
-    # Pre-allocated and filled list
+    # Pre-allocated and filled list. `id` maps every row back to the subject it
+    # came from: the base series samples with replacement, so one subject can
+    # own many rows and anything that partitions the data (cross-validation)
+    # must keep those rows together.
     list(
         time = final_time,
         event = final_event,
         covariates = final_covs,
-        offset = rep(offset, total_rows)
+        offset = rep(offset, total_rows),
+        id = c(sampled_indices, case_indices)
     )
 }
 
@@ -256,9 +266,11 @@ unstandardize_coefficients <- function(coefficients, scaler, col_names) {
 #' @param lambda The primary shrinkage parameter.
 #' @param alpha The mixing/shape parameter. See `prepare_penalty_params`.
 #' @param n_unpenalized Integer. The number of leading covariates to leave unpenalized.
-#' @param fit_fun The fitting function from `cbSCRIP` to use.
+#' @param optimizer The solver to use: one of "CCD", "FISTA", "SAGA" or "SVRG".
 #' @param param_start Optional starting values for the coefficients.
 #' @param standardize Logical. If TRUE, covariates are scaled to have mean 0 and SD 1.
+#' @param lam1_prev Previous `lambda1` on the path, used by the sequential
+#'   strong rules to pre-screen the active set. Ignored on a cold start.
 #' @param all_event_levels Optional vector of all event levels.
 #' @param ... Additional arguments passed to the fitting function.
 #' @return The fitted model object from the specified `fit_fun`.

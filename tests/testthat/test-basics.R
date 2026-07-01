@@ -87,3 +87,19 @@ test_that("cbSCRIP runs with MNlogisticFISTA", {
     expect_s3_class(fit, "cbSCRIP.path")
 })
 
+
+test_that("CV folds keep every subject on one side", {
+    set.seed(123)
+    d <- cbSCRIP::gen_data(n_train = 150, p = 12, num_true = 4, setting = 2)
+    cb <- create_cb_data(survival::Surv(ftime, fstatus) ~ ., d$train, ratio = 20)
+
+    folds <- make_cv_folds(cb, 5)
+    expect_equal(sort(unlist(folds, use.names = FALSE)), seq_along(cb$event))
+    for (f in folds) expect_false(any(cb$id[f] %in% cb$id[-f]))
+    for (k in unique(cb$event[cb$event != 0])) {
+        expect_true(all(vapply(folds, function(f) sum(cb$event[f] == k), 0) > 0))
+    }
+
+    cb$id <- NULL
+    expect_error(make_cv_folds(cb, 5), "no subject")
+})

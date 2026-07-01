@@ -103,7 +103,16 @@ find_lambda_max <- function(cb_data, n_unpenalized, alpha) {
     Y_matrix <- stats::model.matrix(~ 0 + Y_factor)
     Residuals <- Y_matrix[, -1, drop = FALSE] - P_null
 
-    max_abs_grad <- max(abs(t(X_penalized) %*% Residuals))
+    # lambda_max is the smallest lambda zeroing every *penalized* coefficient, so
+    # only those columns enter the KKT test. With n_unpenalized > 2 the trailing
+    # covariates are unpenalized: their gradient vanishes only if the null fit
+    # converged, and relying on that would silently distort lambda_max.
+    n_pen <- ncol(X_penalized) + 2L - n_unpenalized
+    max_abs_grad <- if (n_pen >= 1) {
+        max(abs(t(X_penalized[, seq_len(n_pen), drop = FALSE]) %*% Residuals))
+    } else {
+        0
+    }
 
     # Calculate final lambda_max using the standard formula
     lambda_max <- max_abs_grad / (alpha * n)
@@ -172,6 +181,41 @@ create_lambda_grid <- function(cb_data,
     return(round(grid, 8))
 }
 
+#' Build Cross-Validation Folds at the Subject Level
+#'
+#' The base series samples subjects with replacement, so a single subject
+#' usually owns many case-base rows. Splitting rows would leave copies of the same subject 
+#' on both sides of every fold, so
+#' the validation deviance would be close to in-sample and the curve nearly
+#' flat. Folding on the originating subject removes that leak.
+#'
+#' @param cb_data A case-base data list from `create_cb_data`.
+#' @param nfold Number of folds.
+#' @return A list of `nfold` integer vectors of validation row indices.
+#' @keywords internal
+make_cv_folds <- function(cb_data, nfold) {
+    id <- cb_data$id
+    if (is.null(id)) {
+        cli::cli_abort(c(
+            "`cb_data` has no subject {.field id}, so the folds would leak.",
+            "i" = "Rebuild it with {.fn create_cb_data}."
+        ))
+    }
+
+    subjects <- unique(id)
+
+    strata <- vapply(
+        split(cb_data$event, factor(id, levels = subjects)),
+        max, numeric(1)
+    )
+    # assigns subjects to folds, stratified so the rare cause is spread evenly.
+    subject_folds <- caret::createFolds(factor(strata), k = nfold, list = TRUE)
+
+    rows_by_subject <- split(seq_along(id), factor(id, levels = subjects))
+    lapply(subject_folds, function(s) sort(unlist(rows_by_subject[s], use.names = FALSE)))
+}
+
+
 #' Run a Single Fold of Cross-Validation
 #' @param fold_indices Indices for the validation fold.
 #' @param cb_data Case-base data.
@@ -182,6 +226,7 @@ create_lambda_grid <- function(cb_data,
 #' @param n_unpenalized Number of unpenalized predictors.
 #' @param warm_start Logical, whether to use warm starts.
 #' @param update_f A progress update function.
+#' @param optimizer The solver to use: one of "CCD", "FISTA", "SAGA" or "SVRG".
 #' @param ... Additional arguments for `fit_cb_model`.
 #' @return A list of multinomial deviances and non-zero counts for the fold.
 #' @export
@@ -238,12 +283,14 @@ run_cv_fold <- function(fold_indices, cb_data,
         coefs_orig <- unstandardize_coefficients(model_info$coefficients, scaler, colnames(train_cv_data$covariates))
         model_info$coefficients <- coefs_orig
 
-        # Calculate deviance on the original, unscaled test fold
+        # Deviance on the original, unscaled test fold, per row: subject-level
+        # folds hold unequal numbers of rows, so the raw sums are not
+        # comparable across folds.
         deviances[i] <- calc_multinom_deviance(
             test_cv_data,
             model_info, # Contains re-scaled coefficients
             all_event_levels = all_event_levels
-        )
+        ) / length(test_cv_data$event)
 
         # Count unique variables with at least one non-zero coef, excluding unpenalized terms
         coef_mat <- model_info$coefficients
@@ -277,6 +324,7 @@ run_cv_fold <- function(fold_indices, cb_data,
 #' @param lambda.min.ratio Min lambda ratio.
 #' @param warm_start Logical, whether to use warm starts.
 #' @param select Character string specifying whether the final model is fit using `"1se"` (1-standard-error rule) or `"min"` (minimum deviance). Defaults to `"1se"`.
+#' @param optimizer The solver to use: one of "CCD", "FISTA", "SAGA" or "SVRG".
 #' @param ... Additional arguments.
 #' @return An object of class `cb.cv` containing the results.
 #' @export
@@ -328,7 +376,7 @@ cv_cbSCRIP <- function(formula, data, regularization = "elastic-net",
         ...
     )
 
-    folds <- caret::createFolds(factor(cb_data$event), k = nfold, list = TRUE)
+    folds <- make_cv_folds(cb_data, nfold)
     cli::cli_alert_info("Starting {nfold}-fold cross-validation...")
 
     progressr::handlers("cli")
@@ -539,7 +587,8 @@ refit_cbSCRIP <- function(object, ...) {
                 time = cb_data$time,
                 event = cb_data$event,
                 covariates = cb_data$covariates[, selected_vars_names, drop = FALSE],
-                offset = cb_data$offset
+                offset = cb_data$offset,
+                id = cb_data$id
             )
 
             # Refit the model using unpenalized cbSCRIP (CCD)
@@ -631,6 +680,7 @@ refit_cbSCRIP <- function(object, ...) {
 #' @param lambda.min.ratio Min lambda ratio.
 #' @param warm_start Logical, whether to use warm starts.
 #' @param coeffs Character, whether to return "adjusted" (refitted) or "original" coefficients.
+#' @param optimizer The solver to use: one of "CCD", "FISTA", "SAGA" or "SVRG".
 #' @param ... Additional arguments.
 #' @return An object of class `cbSCRIP.path` or `cbSCRIP`.
 #' @export
