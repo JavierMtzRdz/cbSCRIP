@@ -27,6 +27,8 @@ fit_cb_model(
 
 \item{alpha}{The mixing/shape parameter. See \code{prepare_penalty_params}.}
 
+\item{optimizer}{The solver to use: one of "CCD", "FISTA", "SAGA" or "SVRG".}
+
 \item{param_start}{Optional starting values for the coefficients.}
 
 \item{n_unpenalized}{Integer. The number of leading covariates to leave unpenalized.}
@@ -35,9 +37,10 @@ fit_cb_model(
 
 \item{all_event_levels}{Optional vector of all event levels.}
 
-\item{...}{Additional arguments passed to the fitting function.}
+\item{lam1_prev}{Previous \code{lambda1} on the path, used by the sequential
+strong rules to pre-screen the active set. Ignored on a cold start.}
 
-\item{fit_fun}{The fitting function from \code{cbSCRIP} to use.}
+\item{...}{Additional arguments passed to the fitting function.}
 }
 \value{
 The fitted model object from the specified \code{fit_fun}.

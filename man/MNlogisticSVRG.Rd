@@ -83,6 +83,9 @@ MNlogisticSVRG(
 \item{verbose}{Verbosity.}
 
 \item{save_history}{Save history.}
+
+\item{lam1_prev}{Previous \code{lambda1} on the path, used by the sequential
+strong rules to pre-screen the active set. Ignored on a cold start.}
 }
 \value{
 A list with model results.

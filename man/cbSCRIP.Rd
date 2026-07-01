@@ -52,6 +52,8 @@ cbSCRIP(
 
 \item{coeffs}{Character, whether to return "adjusted" (refitted) or "original" coefficients.}
 
+\item{optimizer}{The solver to use: one of "CCD", "FISTA", "SAGA" or "SVRG".}
+
 \item{...}{Additional arguments.}
 }
 \value{

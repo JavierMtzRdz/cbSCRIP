@@ -64,6 +64,8 @@ MNlogisticSAGAN(
 
 \item{learning_rate}{Learning rate.}
 
+\item{optimizer}{The solver to use: one of "CCD", "FISTA", "SAGA" or "SVRG".}
+
 \item{group_id}{Group IDs.}
 
 \item{group_weights}{Group weights.}
@@ -81,6 +83,9 @@ MNlogisticSAGAN(
 \item{verbose}{Verbosity.}
 
 \item{save_history}{Save history.}
+
+\item{lam1_prev}{Previous \code{lambda1} on the path, used by the sequential
+strong rules to pre-screen the active set. Ignored on a cold start.}
 }
 \value{
 A list with model results.

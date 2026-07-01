@@ -20,6 +20,7 @@ cv_cbSCRIP(
   lambda_max = NULL,
   lambda.min.ratio = NULL,
   warm_start = TRUE,
+  select = c("1se", "min"),
   optimizer = c("CCD", "SAGA", "SVRG", "FISTA"),
   ...
 )
@@ -54,6 +55,10 @@ cv_cbSCRIP(
 \item{lambda.min.ratio}{Min lambda ratio.}
 
 \item{warm_start}{Logical, whether to use warm starts.}
+
+\item{select}{Character string specifying whether the final model is fit using \code{"1se"} (1-standard-error rule) or \code{"min"} (minimum deviance). Defaults to \code{"1se"}.}
+
+\item{optimizer}{The solver to use: one of "CCD", "FISTA", "SAGA" or "SVRG".}
 
 \item{...}{Additional arguments.}
 }

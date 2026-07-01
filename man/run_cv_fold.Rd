@@ -37,6 +37,8 @@ run_cv_fold(
 
 \item{update_f}{A progress update function.}
 
+\item{optimizer}{The solver to use: one of "CCD", "FISTA", "SAGA" or "SVRG".}
+
 \item{...}{Additional arguments for \code{fit_cb_model}.}
 }
 \value{
