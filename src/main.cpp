@@ -225,14 +225,16 @@ Rcpp::List MultinomLogisticCCD(
       if (!is_active[j]) inactive_vars.push_back(j);
 
     if (!inactive_vars.empty()) {
-      arma::uvec inactive_uvec = arma::conv_to<arma::uvec>::from(inactive_vars);
-      arma::mat Grad_inactive = (X.cols(inactive_uvec).t() * Residuals_init) / n;
+      // Gradient over the whole design in one GEMM. Gathering the inactive
+      // columns into a temporary costs more in memory traffic than the few
+      // extra active columns cost in flops.
+      arma::mat Grad = (X.t() * Residuals_init) / n;
 
-      for (size_t idx = 0; idx < inactive_vars.size(); ++idx) {
+      for (int j : inactive_vars) {
         // Check if any class gradient exceeds the SSR threshold
-        double max_grad = arma::max(arma::abs(Grad_inactive.row(idx)));
+        double max_grad = arma::max(arma::abs(Grad.row(j)));
         if (max_grad >= ssr_threshold) {
-          active_set.push_back(inactive_vars[idx]);
+          active_set.push_back(j);
         }
       }
     }
@@ -294,8 +296,7 @@ Rcpp::List MultinomLogisticCCD(
     // reallocating them on every Newton step.
     arma::uvec active_uvec = arma::conv_to<arma::uvec>::from(active_set);
     arma::mat X_active = X.cols(active_uvec);
-    for (int k = 0; k < K; ++k)
-      X_W_cache[k].set_size(n, active_set.size());
+    arma::mat X_active_sq = arma::square(X_active);
 
     // --- Newton Loop on Active Set ---
     for (int iter = 1; iter <= newton_maxit; ++iter) {
@@ -320,21 +321,18 @@ Rcpp::List MultinomLogisticCCD(
 
       // Refill X_W_j for all active variables to speed up DAXPY updates
       for (int k = 0; k < K; ++k) {
-        for (size_t idx = 0; idx < active_set.size(); ++idx) {
-           X_W_cache[k].col(idx) = X_active.col(idx) % W.col(k);
-        }
+        X_W_cache[k] = X_active;
+        X_W_cache[k].each_col() %= W.col(k);
       }
 
-      // We still need the diagonal of the Hessian for all active variables.
-      arma::mat H_diag(active_set.size(), K, arma::fill::zeros);
+      // Hessian diagonal, H_jk = sum_i X_ij^2 W_ik / n. One GEMM gives every
+      // (j, k) at once, instead of |active| * K length-n dot products.
+      arma::mat H_diag = (X_active_sq.t() * W) / n;
       for (size_t idx = 0; idx < active_set.size(); ++idx) {
-        int j = active_set[idx];
+        if (penalty == 1 && active_set[idx] < reg_p) {
+          H_diag.row(idx) += lam2;
+        }
         for (int k = 0; k < K; ++k) {
-          H_diag(idx, k) = arma::dot(X_active.col(idx), X_W_cache[k].col(idx)) / n;
-          
-          if (penalty == 1 && j < reg_p) {
-             H_diag(idx, k) += lam2;
-          }
           if (H_diag(idx, k) < 1e-6) H_diag(idx, k) = 1e-6;
         }
       }
@@ -347,10 +345,18 @@ Rcpp::List MultinomLogisticCCD(
       double inner_tol = 1e-6;
       arma::mat param_inner = param; // Working copy
 
+      // Inner active set: the first sweep visits every candidate, later sweeps
+      // only revisit coordinates that came back non-zero (plus the unpenalized
+      // ones). The next Newton step sweeps everything again and the KKT check
+      // below still scans the whole design, so no variable is locked out.
+      std::vector<size_t> sweep_idx(active_set.size());
+      for (size_t idx = 0; idx < active_set.size(); ++idx) sweep_idx[idx] = idx;
+
       for (int inner = 0; inner < inner_maxit; ++inner) {
         double max_inner_diff = 0.0;
 
-        for (size_t idx = 0; idx < active_set.size(); ++idx) {
+        for (size_t pos = 0; pos < sweep_idx.size(); ++pos) {
+          size_t idx = sweep_idx[pos];
           int j = active_set[idx];
 
           for (int k = 0; k < K; ++k) {
@@ -395,6 +401,19 @@ Rcpp::List MultinomLogisticCCD(
         }
         if (max_inner_diff < inner_tol)
           break;
+
+        if (inner == 0) {
+          std::vector<size_t> nz;
+          nz.reserve(sweep_idx.size());
+          for (size_t idx = 0; idx < active_set.size(); ++idx) {
+            int j = active_set[idx];
+            bool keep = (j >= reg_p);
+            for (int k = 0; !keep && k < K; ++k)
+              keep = (param_inner(j, k) != 0.0);
+            if (keep) nz.push_back(idx);
+          }
+          sweep_idx.swap(nz);
+        }
       }
 
       // 3. Check Outer Convergence Search
@@ -500,14 +519,13 @@ Rcpp::List MultinomLogisticCCD(
     }
     
     if (!inactive_vars.empty()) {
-      arma::uvec inactive_uvec = arma::conv_to<arma::uvec>::from(inactive_vars);
-      // Fast BLAS-3 gradient computation for all inactive variables
-      arma::mat Grad_inactive = (X.cols(inactive_uvec).t() * Residuals) / n; 
-      
-      for (size_t idx = 0; idx < inactive_vars.size(); ++idx) {
-        int j = inactive_vars[idx];
+      // Fast BLAS-3 gradient over the whole design; see the SSR block above for
+      // why this beats gathering the inactive columns into a temporary.
+      arma::mat Grad = (X.t() * Residuals) / n;
+
+      for (int j : inactive_vars) {
         // Correct KKT for L1 element-wise penalty is max_k |grad_jk| > lam1
-        double max_grad = arma::max(arma::abs(Grad_inactive.row(idx)));
+        double max_grad = arma::max(arma::abs(Grad.row(j)));
         // Use >= to catch borderline violators that are rounded just below lam1
         if (max_grad >= lam1) {
           new_active.push_back(j);

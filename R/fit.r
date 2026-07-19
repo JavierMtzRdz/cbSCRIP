@@ -19,9 +19,12 @@ prepare_penalty_params <- function(regularization, lambda, alpha) {
                 alpha <- 0.5
             }
 
+            # The solver's objective is lambda1 * ||b||_1 + lambda2/2 * ||b||^2,
+            # so lambda2 must carry the full lambda * (1 - alpha) to match the
+            # usual elastic-net parameterisation.
             list(
                 lambda1 = lambda * alpha,
-                lambda2 = 0.5 * lambda * (1 - alpha),
+                lambda2 = lambda * (1 - alpha),
                 alpha = alpha
             )
         },
