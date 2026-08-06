@@ -298,31 +298,31 @@ gen_data <- function(n_train = 300, n_test = 100, p = 300,
     nu_ind <- seq_len(num_true)
     k <- num_true
 
+    blocks <- diff(round(seq(0, k, length.out = 5)))
+
     # Define coefficient patterns based on the setting
     if (setting == 1) {
         beta1[nu_ind] <- 1
         beta2[nu_ind] <- 0
     } else if (setting == 2) {
-        beta1[nu_ind] <- rep(c(1, 0, 1, 0), each = k / 4)
-        beta2[nu_ind] <- rep(c(0, 1, 0, 1), each = k / 4)
+        beta1[nu_ind] <- rep(c(1, 0, 1, 0), times = blocks)
+        beta2[nu_ind] <- rep(c(0, 1, 0, 1), times = blocks)
     } else if (setting == 3) {
-        beta1[nu_ind] <- rep(c(0.5, -0.5), times = k / 2)
-        beta2[nu_ind] <- rep(c(-0.5, 0.5), times = k / 2)
+        beta1[nu_ind] <- rep_len(c(0.5, -0.5), k)
+        beta2[nu_ind] <- rep_len(c(-0.5, 0.5), k)
     } else if (setting == 4) {
-        beta1_true <- c(
-            rep(1, k / 4),
-            rep(c(0.5, -0.5), times = k / 8),
-            rep(1, k / 4),
-            rep(0, k / 4)
+        beta1[nu_ind] <- c(
+            rep(1, blocks[1]),
+            rep_len(c(0.5, -0.5), blocks[2]),
+            rep(1, blocks[3]),
+            rep(0, blocks[4])
         )
-        beta2_true <- c(
-            rep(0, k / 4),
-            rep(c(-0.5, 0.5), times = k / 8),
-            rep(0, k / 4),
-            rep(1, k / 4)
+        beta2[nu_ind] <- c(
+            rep(0, blocks[1]),
+            rep_len(c(-0.5, 0.5), blocks[2]),
+            rep(0, blocks[3]),
+            rep(1, blocks[4])
         )
-        beta1[nu_ind] <- beta1_true
-        beta2[nu_ind] <- beta2_true
     } else if (setting == 5) {
         beta1[nu_ind] <- 1
         beta2[nu_ind] <- -1
