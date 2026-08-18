@@ -29,7 +29,7 @@ test_that("cbSCRIP.path non_zero counts only penalized variables", {
         data = train,
         nlambda = 5,
         maxit = 50,
-        fit_fun = MNlogisticCCD,
+        optimizer = "CCD",
         ratio = 20
     )
 

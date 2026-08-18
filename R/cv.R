@@ -19,12 +19,12 @@ NULL
 #' @keywords internal
 calc_multinom_deviance <- function(cb_data, fit_object, all_event_levels) {
     # Reconstruct design matrix
-    X <- as.matrix(cbind(cb_data$covariates, "log(time)" = log(cb_data$time), "(Intercept)" = 1))
+    X <- as.matrix(cbind(cb_data$covariates, "log(time)" = log(pmax(cb_data$time, 1e-8)), "(Intercept)" = 1))
 
     # Get the offset term
     offset <- cb_data$offset
     if (is.null(offset)) {
-        stop("`offset` not found in cb_data.")
+        cli::cli_abort("`offset` not found in cb_data.")
     }
 
     # Calculate scores for all classes
@@ -44,15 +44,18 @@ calc_multinom_deviance <- function(cb_data, fit_object, all_event_levels) {
     pred_mat <- exp_scores / denominator
 
     # Ensure column order and names are correct
-    colnames(pred_mat) <- c(0, 1:(ncol(pred_mat) - 1))
-    pred_mat <- pred_mat[, as.character(all_event_levels)]
+    colnames(pred_mat) <- as.character(all_event_levels)
+
+    # Bound probabilities to prevent log(0) and deviance warnings
+    pred_mat <- pmax(pmin(pred_mat, 1 - 1e-15), 1e-15)
+    pred_mat <- pred_mat / rowSums(pred_mat) # Re-normalize
 
     # Create the observed outcome matrix (Y_mat)
     Y_fct <- factor(cb_data$event, levels = all_event_levels)
     Y_mat <- stats::model.matrix(~ Y_fct - 1)
 
-    # Calculate deviance with stable probabilities
-    VGAM::multinomial()@deviance(mu = pred_mat, y = Y_mat, w = rep(1, nrow(X)))
+    # Calculate multinomial deviance: -2 * sum(Y * log(P))
+    -2 * sum(Y_mat * log(pred_mat))
 }
 
 
@@ -70,58 +73,46 @@ find_lambda_max <- function(cb_data, n_unpenalized, alpha) {
 
     # Data Components
     Y_factor <- as.factor(cb_data$event)
-    offsets <- cb_data$offset
-    penalized_covs_raw <- as.matrix(cb_data$covariates)
+    n <- length(cb_data$event)
 
-    n <- nrow(penalized_covs_raw) # Number of observations
-    K_total <- nlevels(Y_factor) # Total number of classes (e.g., 3 for 0, 1, 2)
-    K_params <- K_total - 1 # Number of parameter columns (non-baseline)
+    # The penalty acts on the standardized scale, so the gradient must too.
+    cb_std <- standardize_cb_data(cb_data)$cb_data
+    X_penalized <- cb_std$covariates
 
-    # Calculate Null Probabilities
+    # Reference point for the gradient: the model with every penalized
+    # coefficient at zero but the unpenalized terms (log(time), intercept) at
+    # their MLE. Holding those at zero as well inflates lambda_max several-fold
+    # and wastes the top of the path refitting the same null model.
+    null_fit <- fit_cb_model(
+        cb_data = cb_std,
+        regularization = "elastic-net",
+        lambda = 1e6, alpha = 1,
+        n_unpenalized = n_unpenalized,
+        standardize = FALSE,
+        optimizer = "CCD"
+    )
 
-    eta_null_params <- matrix(0, nrow = n, ncol = K_params)
-    # Add offset
-    eta_null_params[] <- offsets
+    X <- cbind(X_penalized,
+        "log(time)" = log(pmax(cb_std$time, 1e-8)),
+        "(Intercept)" = 1
+    )
+    exp_eta <- exp(X %*% null_fit$coefficients + cb_data$offset)
+    P_null <- exp_eta / (1 + rowSums(exp_eta)) # n x K_params
 
-    # Softmax calculation
-    exp_eta_null <- exp(eta_null_params)
-    # Add baseline class contribution (exp(0) = 1)
-    denom <- 1 + rowSums(exp_eta_null)
+    # One-hot outcomes, baseline class dropped to match P_null's columns
+    Y_matrix <- stats::model.matrix(~ 0 + Y_factor)
+    Residuals <- Y_matrix[, -1, drop = FALSE] - P_null
 
-    P_null <- matrix(0, nrow = n, ncol = K_total)
-    P_null[, 1] <- 1 / denom # Baseline probability (assuming class 0 or first factor level)
-    if (K_params > 0) {
-        for (k in 1:K_params) {
-            P_null[, k + 1] <- exp_eta_null[, k] / denom
-        }
+    # lambda_max is the smallest lambda zeroing every *penalized* coefficient, so
+    # only those columns enter the KKT test. With n_unpenalized > 2 the trailing
+    # covariates are unpenalized: their gradient vanishes only if the null fit
+    # converged, and relying on that would silently distort lambda_max.
+    n_pen <- ncol(X_penalized) + 2L - n_unpenalized
+    max_abs_grad <- if (n_pen >= 1) {
+        max(abs(t(X_penalized[, seq_len(n_pen), drop = FALSE]) %*% Residuals))
+    } else {
+        0
     }
-
-    # Calculate Null Model Residuals
-    Y_matrix <- stats::model.matrix(~ 0 + Y_factor) # n x K_total one-hot matrix
-    Residuals <- Y_matrix - P_null # n x K_total residual matrix
-
-    # Build the Standardized Design Matrix
-
-    # Build the Standardized Design Matrix
-
-    # Standardize the original covariates using helper
-    std_res <- standardize_cb_data(cb_data)
-    penalized_covs_scaled <- std_res$cb_data$covariates
-
-
-    # Calculate Gradient for PENALIZED Variables
-
-    X_penalized <- penalized_covs_scaled
-
-    # Gradient = X_penalized^T * Residuals
-    # We only need the gradient w.r.t the K_params (non-baseline) parameter sets
-    # Residuals[, -1] selects columns for classes 1, 2, ... K_params
-    Gradient_matrix <- t(X_penalized) %*% Residuals[, -1, drop = FALSE]
-
-    # Find Max Absolute Gradient Component and Scale
-
-    # Find the largest absolute value across all elements of the gradient matrix
-    max_abs_grad <- max(abs(Gradient_matrix))
 
     # Calculate final lambda_max using the standard formula
     lambda_max <- max_abs_grad / (alpha * n)
@@ -157,40 +148,73 @@ create_lambda_grid <- function(cb_data,
 
     nvars <- ncol(cb_data$covariates)
 
-    if (is.null(lambda.min.ratio)) lambda.min.ratio <- ifelse(nobs < nvars, 0.01, 1e-03)
+    if (is.null(lambda.min.ratio)) {
+        lambda.min.ratio <- ifelse(nvars >= 100, 0.01, 1e-03)
+    } else if (lambda.min.ratio <= 0) {
+        # When 0 is requested, span 4 orders of magnitude down to 1e-4 to select all active variables
+        lambda.min.ratio <- 1e-04
+    }
+
+    if (is.null(lambda_max)) {
+        lambda_max <- find_lambda_max(
+            cb_data,
+            alpha = if (is.null(alpha)) 0.5 else alpha,
+            n_unpenalized = n_unpenalized
+        )
+    }
+
+    min_safe_lambda <- lambda_max * max(lambda.min.ratio, 1e-6)
 
     if (is.null(lambda)) {
-        # penalty_params_notif(regularization = regularization,
-        #                      alpha = alpha)
-
-        if (is.null(alpha)) {
-            alpha <- 0.5
-        }
-
-        if (is.null(lambda_max)) {
-            lambda_max <- find_lambda_max(
-                cb_data,
-                # regularization = regularization,
-                alpha = alpha,
-                n_unpenalized = n_unpenalized
-                # ...
-            )
-        }
-
-        grid <- rev(exp(seq(log(lambda_max * lambda.min.ratio),
-            log(lambda_max),
-            length.out = nlambda
-        )))
+        grid <- rev(exp(seq(log(lambda_max * lambda.min.ratio), log(lambda_max), length.out = nlambda)))
     } else {
         grid <- sort(unique(lambda[lambda >= 0]), decreasing = TRUE)
-
         if (length(grid) == 0) cli::cli_abort("Provided lambda values invalid.")
+        
+        # Clamp user-provided lambdas to the minimum safe threshold
+        grid[grid < min_safe_lambda] <- min_safe_lambda
+        grid <- unique(grid)
     }
 
     if (length(grid) > 1) cli::cli_alert_info("Using {length(grid)} lambdas. Range: {signif(min(grid), 3)} to {signif(max(grid), 3)}")
 
     return(round(grid, 8))
 }
+
+#' Build Cross-Validation Folds at the Subject Level
+#'
+#' The base series samples subjects with replacement, so a single subject
+#' usually owns many case-base rows. Splitting rows would leave copies of the same subject 
+#' on both sides of every fold, so
+#' the validation deviance would be close to in-sample and the curve nearly
+#' flat. Folding on the originating subject removes that leak.
+#'
+#' @param cb_data A case-base data list from `create_cb_data`.
+#' @param nfold Number of folds.
+#' @return A list of `nfold` integer vectors of validation row indices.
+#' @keywords internal
+make_cv_folds <- function(cb_data, nfold) {
+    id <- cb_data$id
+    if (is.null(id)) {
+        cli::cli_abort(c(
+            "`cb_data` has no subject {.field id}, so the folds would leak.",
+            "i" = "Rebuild it with {.fn create_cb_data}."
+        ))
+    }
+
+    subjects <- unique(id)
+
+    strata <- vapply(
+        split(cb_data$event, factor(id, levels = subjects)),
+        max, numeric(1)
+    )
+    # assigns subjects to folds, stratified so the rare cause is spread evenly.
+    subject_folds <- caret::createFolds(factor(strata), k = nfold, list = TRUE)
+
+    rows_by_subject <- split(seq_along(id), factor(id, levels = subjects))
+    lapply(subject_folds, function(s) sort(unlist(rows_by_subject[s], use.names = FALSE)))
+}
+
 
 #' Run a Single Fold of Cross-Validation
 #' @param fold_indices Indices for the validation fold.
@@ -202,6 +226,7 @@ create_lambda_grid <- function(cb_data,
 #' @param n_unpenalized Number of unpenalized predictors.
 #' @param warm_start Logical, whether to use warm starts.
 #' @param update_f A progress update function.
+#' @param optimizer The solver to use: one of "CCD", "FISTA", "SAGA" or "SVRG".
 #' @param ... Additional arguments for `fit_cb_model`.
 #' @return A list of multinomial deviances and non-zero counts for the fold.
 #' @export
@@ -213,6 +238,7 @@ run_cv_fold <- function(fold_indices, cb_data,
                         n_unpenalized = 2,
                         warm_start = TRUE,
                         update_f = NULL,
+                        optimizer = "CCD",
                         ...) {
     # Split data into training and validation folds
     train_cv_data <- lapply(cb_data, function(x) if (is.matrix(x)) x[-fold_indices, , drop = FALSE] else x[-fold_indices])
@@ -228,8 +254,10 @@ run_cv_fold <- function(fold_indices, cb_data,
     non_zero <- numeric(length(lambdagrid))
 
     param_start <- NULL
+    prev_lambda1 <- 0.0   # for Sequential Strong Rules
 
     for (i in seq_along(lambdagrid)) {
+        penalty_p <- prepare_penalty_params(regularization, lambdagrid[i], alpha)
         opt_args <- list(train_cv_data_scaled,
             lambda = lambdagrid[i],
             all_event_levels = all_event_levels,
@@ -238,6 +266,8 @@ run_cv_fold <- function(fold_indices, cb_data,
             param_start = param_start, # Pass warm start (scaled)
             n_unpenalized = n_unpenalized,
             standardize = FALSE, # Data is already standardized
+            optimizer = optimizer,
+            lam1_prev = prev_lambda1,
             ...
         )
 
@@ -247,17 +277,20 @@ run_cv_fold <- function(fold_indices, cb_data,
 
         # Store scaled coefficients for next iteration
         if (warm_start) param_start <- model_info$coefficients
+        prev_lambda1 <- penalty_p$lambda1   # update SSR reference lambda
 
         # Unstandardize coefficients for deviance calculation
         coefs_orig <- unstandardize_coefficients(model_info$coefficients, scaler, colnames(train_cv_data$covariates))
         model_info$coefficients <- coefs_orig
 
-        # Calculate deviance on the original, unscaled test fold
+        # Deviance on the original, unscaled test fold, per row: subject-level
+        # folds hold unequal numbers of rows, so the raw sums are not
+        # comparable across folds.
         deviances[i] <- calc_multinom_deviance(
             test_cv_data,
             model_info, # Contains re-scaled coefficients
             all_event_levels = all_event_levels
-        )
+        ) / length(test_cv_data$event)
 
         # Count unique variables with at least one non-zero coef, excluding unpenalized terms
         coef_mat <- model_info$coefficients
@@ -290,6 +323,8 @@ run_cv_fold <- function(fold_indices, cb_data,
 #' @param lambda_max Max lambda.
 #' @param lambda.min.ratio Min lambda ratio.
 #' @param warm_start Logical, whether to use warm starts.
+#' @param select Character string specifying whether the final model is fit using `"1se"` (1-standard-error rule) or `"min"` (minimum deviance). Defaults to `"1se"`.
+#' @param optimizer The solver to use: one of "CCD", "FISTA", "SAGA" or "SVRG".
 #' @param ... Additional arguments.
 #' @return An object of class `cb.cv` containing the results.
 #' @export
@@ -304,7 +339,10 @@ cv_cbSCRIP <- function(formula, data, regularization = "elastic-net",
                        lambda_max = NULL,
                        lambda.min.ratio = NULL,
                        warm_start = TRUE,
+                       select = c("1se", "min"),
+                       optimizer = c("CCD", "SAGA", "SVRG", "FISTA"),
                        ...) {
+    select <- rlang::arg_match(select)
     if (is.null(cb_data)) {
         cb_data <- create_cb_data(formula, data,
             ratio = ratio,
@@ -338,7 +376,7 @@ cv_cbSCRIP <- function(formula, data, regularization = "elastic-net",
         ...
     )
 
-    folds <- caret::createFolds(factor(cb_data$event), k = nfold, list = TRUE)
+    folds <- make_cv_folds(cb_data, nfold)
     cli::cli_alert_info("Starting {nfold}-fold cross-validation...")
 
     progressr::handlers("cli")
@@ -358,6 +396,8 @@ cv_cbSCRIP <- function(formula, data, regularization = "elastic-net",
                     alpha = alpha,
                     all_event_levels = all_event_levels,
                     update_f = p,
+                    optimizer = optimizer,
+                    warm_start = warm_start,
                     ...
                 )
                 return(res)
@@ -371,10 +411,6 @@ cv_cbSCRIP <- function(formula, data, regularization = "elastic-net",
 
     deviance_matrix <- lapply(fold_list, function(.x) {
         .x$deviances
-    })
-
-    coeffs_list <- lapply(fold_list, function(.x) {
-        .x$coeffs
     })
 
     deviance_matrix <- do.call(cbind, deviance_matrix)
@@ -397,17 +433,22 @@ cv_cbSCRIP <- function(formula, data, regularization = "elastic-net",
 
     lambda.1se <- max(lambdagrid[mean_dev <= min_dev_upper_bound])
 
-    fit.min <- fit_cb_model(
-        cb_data,
+    lambda.opt <- if (select == "1se") lambda.1se else lambda.min
+
+    fit.opt <- fit_cb_model(
+        cb_data = cb_data,
         regularization = regularization,
-        lambda = lambda.min,
+        lambda = lambda.opt,
         alpha = alpha,
         n_unpenalized = n_unpenalized,
+        optimizer = optimizer,
         ...
     )
 
     result <- list(
-        fit.min = fit.min,
+        fit = fit.opt,
+        select = select,
+        lambda.opt = lambda.opt,
         lambdagrid = lambdagrid,
         deviance_matrix = deviance_matrix,
         non_zero_matrix = non_zero_matrix,
@@ -457,9 +498,11 @@ print.cbSCRIP.cv <- function(x, ...) {
     cat(sprintf("  Largest lambda within 1 SE of min (lambda.1se): %.4f\n\n", x$lambda.1se))
 
     # Report the number of non-zero coefficients for the final fitted model
-    n_nonzero <- sum(x$fit.min$coefficients != 0)
+    sel <- if (!is.null(x$select)) x$select else "min"
+    fit_final <- if (!is.null(x$fit)) x$fit else x$fit.min
+    n_nonzero <- sum(fit_final$coefficients != 0)
     cat(paste0(
-        "The final model (fit.min) was fit using lambda.min and has ",
+        "The final model (fit) was fit using lambda.", sel, " and has ",
         n_nonzero, " non-zero coefficients.\n"
     ))
 
@@ -538,54 +581,40 @@ refit_cbSCRIP <- function(object, ...) {
             selected_vars_logical <- (rowSums(abs(coef_matrix)) > 1e-10) & (rownames(coef_matrix) %in% colnames(cb_data$covariates))
             selected_vars_names <- rownames(coef_matrix)[selected_vars_logical]
 
-            # Handle the case where no variables are selected (intercept-only model)
-            if (length(selected_vars_names) == 0) {
-                refit_formula_str <- "status ~ 1 + log(time)"
-                # Data still needs time and status columns for fitSmoothHazard
-                refit_data <- data.frame(time = cb_data$time, status = cb_data$event)
-            } else {
-                # Prepare data with only the selected covariates
-                refit_data <- as.data.frame(cb_data$covariates[, selected_vars_names, drop = FALSE])
-                refit_data[["time"]] <- cb_data$time
-                refit_data[["status"]] <- cb_data$event
-                refit_data[["offset"]] <- cb_data$offset
+            # Create a case-base data object containing ONLY the selected variables
+            # (If length(selected_vars_names) == 0, it becomes a 0-column matrix, which is fine)
+            refit_cb_data <- list(
+                time = cb_data$time,
+                event = cb_data$event,
+                covariates = cb_data$covariates[, selected_vars_names, drop = FALSE],
+                offset = cb_data$offset,
+                id = cb_data$id
+            )
 
-                class(refit_data) <- c("cbData", class(refit_data))
-
-                # Create the new formula for refitting
-                refit_formula_str <- paste(
-                    "status ~",
-                    paste(make.names(selected_vars_names), collapse = " + "),
-                    "+ log(time) + offset(offset)"
-                )
-            }
-
-            # This line seems problematic as it modifies cb_data in a loop
-            # cb_data$covariates <- cb_data$covariates[, selected_vars_names, drop = FALSE]
-
-            # Refit the model using VGAM::vglm
+            # Refit the model using unpenalized cbSCRIP (CCD)
             refitted_model <- tryCatch(
                 {
-                    model <- VGAM::vglm(stats::as.formula(refit_formula_str),
-                        data = refit_data,
-                        family = VGAM::multinomial(refLevel = 1),
-                        control = VGAM::vglm.control(
-                            step = 0.5,
-                            maxit = 40
-                        )
+                    model <- fit_cb_model(
+                        cb_data = refit_cb_data,
+                        regularization = "elastic-net",
+                        lambda = 1e-10,
+                        optimizer = "CCD",
+                        n_unpenalized = length(selected_vars_names) + 2,
+                        standardize = TRUE 
                     )
 
-                    typeEvents <- sort(unique(refit_data[["status"]]))
-
-                    methods::new("CompRisk", model,
-                        originalData = data.frame(),
-                        typeEvents = typeEvents,
-                        timeVar = "time",
-                        eventVar = "status"
-                    )
+                    class(model) <- c("penalizedCompRisk", class(model))
+                    model$cb_data <- refit_cb_data
+                    
+                    # Fix coefficient names if missing (standardize=FALSE skips this in fit_cb_model)
+                    if (!is.null(model$coefficients)) {
+                        rownames(model$coefficients) <- c(selected_vars_names, "log(time)", "(Intercept)")
+                    }
+                    
+                    model
                 },
                 error = function(e) {
-                    warning(paste("Refitting failed for one lambda value:", e$message))
+                    cli::cli_alert_warning(paste("Refitting failed for one lambda value:", e$message))
                     return(NULL)
                 }
             )
@@ -610,21 +639,13 @@ refit_cbSCRIP <- function(object, ...) {
             )
         )
         if (!is.null(model)) {
-            refit_coefs <- stats::coef(model) # This is the named vector
+            refit_coefs <- model$coefficients
 
-            # Iterate through the named vector to parse names and place coefficients
-            for (i in seq_along(refit_coefs)) {
-                coef_name <- names(refit_coefs)[i]
-                coef_val <- refit_coefs[i]
-
-                # Split "X1:1" into "X1" and "1"
-                parts <- strsplit(coef_name, ":")[[1]]
-                var_name <- parts[1]
-                cause_idx <- as.integer(parts[2])
-
-                # Check if the variable and cause exist in our template matrix
-                if (var_name %in% rownames(full_coef_mat) && cause_idx <= K_orig) {
-                    full_coef_mat[var_name, cause_idx] <- coef_val
+            if (!is.null(refit_coefs)) {
+                for (var_name in rownames(refit_coefs)) {
+                    if (var_name %in% rownames(full_coef_mat)) {
+                        full_coef_mat[var_name, ] <- refit_coefs[var_name, ]
+                    }
                 }
             }
         }
@@ -659,6 +680,7 @@ refit_cbSCRIP <- function(object, ...) {
 #' @param lambda.min.ratio Min lambda ratio.
 #' @param warm_start Logical, whether to use warm starts.
 #' @param coeffs Character, whether to return "adjusted" (refitted) or "original" coefficients.
+#' @param optimizer The solver to use: one of "CCD", "FISTA", "SAGA" or "SVRG".
 #' @param ... Additional arguments.
 #' @return An object of class `cbSCRIP.path` or `cbSCRIP`.
 #' @export
@@ -672,8 +694,10 @@ cbSCRIP <- function(formula, data, regularization = "elastic-net",
                     lambda.min.ratio = NULL,
                     warm_start = TRUE,
                     coeffs = c("adjusted", "original"),
+                    optimizer = c("CCD", "FISTA", "SAGA", "SVRG"),
                     ...) {
     coeffs <- rlang::arg_match(coeffs)
+    optimizer <- rlang::arg_match(optimizer)
 
     # Create the full case-base dataset
 
@@ -713,10 +737,12 @@ cbSCRIP <- function(formula, data, regularization = "elastic-net",
 
         path_fits <- vector("list", nlambda)
 
-        param_start <- NULL #
+        param_start <- NULL
+        prev_lambda1 <- 0.0   # for Sequential Strong Rules
 
         cli::cli_progress_bar("Fitting Path", total = nlambda)
         for (i in seq_along(lambdagrid)) {
+            penalty_p <- prepare_penalty_params(regularization, lambdagrid[i], alpha)
             model_info <- fit_cb_model(
                 cb_data = cb_data_scaled,
                 lambda = lambdagrid[i],
@@ -725,11 +751,14 @@ cbSCRIP <- function(formula, data, regularization = "elastic-net",
                 n_unpenalized = n_unpenalized,
                 param_start = param_start, # Pass warm start (scaled)
                 standardize = FALSE, # Data is already standardized
+                optimizer = optimizer,
+                lam1_prev = prev_lambda1,
                 ...
             )
 
             # Update the warm start for the next iteration (keep scaled)
             if (warm_start) param_start <- model_info$coefficients
+            prev_lambda1 <- penalty_p$lambda1   # update SSR reference lambda
 
             # Unstandardize coefficients for output
             coefs_orig <- unstandardize_coefficients(model_info$coefficients, scaler, colnames(cb_data$covariates))
@@ -774,6 +803,7 @@ cbSCRIP <- function(formula, data, regularization = "elastic-net",
             regularization = regularization,
             alpha = alpha,
             n_unpenalized = n_unpenalized,
+            optimizer = optimizer,
             ...
         )
 
@@ -794,8 +824,67 @@ cbSCRIP <- function(formula, data, regularization = "elastic-net",
 
         result$call <- match.call()
 
-        class(result) <- "cbSCRIP"
+        class(result) <- c("cbSCRIP", "penalizedCompRisk", "CompRisk")
     }
 
     return(result)
+}
+
+#' Select optimal lambda using BIC
+#'
+#' Evaluates the Bayesian Information Criterion (BIC) for each model in a cbSCRIP path
+#' and returns the lambda that minimizes it.
+#'
+#' @param path_obj An object of class `cbSCRIP.path` returned by `cbSCRIP`.
+#' @return A list containing the optimal lambda (`lambda.min.bic`), the corresponding
+#'   model (`fit.min.bic`), and the vector of BIC values.
+#' @export
+select_lambda_bic <- function(path_obj) {
+    if (!inherits(path_obj, "cbSCRIP.path")) {
+        cli::cli_abort("path_obj must be of class 'cbSCRIP.path'")
+    }
+    
+    cb_data <- path_obj$cb_data
+    all_event_levels <- sort(unique(cb_data$event))
+    n_events <- sum(cb_data$event != 0)
+    
+    # Calculate deviance for each lambda
+    deviances <- purrr::map_dbl(seq_along(path_obj$lambdagrid), function(i) {
+        fit_obj <- path_obj$models_info[[i]]
+        calc_multinom_deviance(cb_data, fit_obj, all_event_levels)
+    })
+    
+    # df is the number of non-zero coefficients
+    dfs <- unlist(path_obj$non_zero)
+    
+    # BIC = Deviance + df * log(n_events)
+    bics <- deviances + dfs * log(n_events)
+    
+    best_idx <- which.min(bics)
+    lambda.min.bic <- path_obj$lambdagrid[best_idx]
+    
+    # Create a cbSCRIP object for the best fit
+    fit.min.bic <- path_obj$models_info[[best_idx]]
+    fit.min.bic$cb_data <- cb_data
+    fit.min.bic$call <- path_obj$call
+    fit.min.bic$call$lambda <- lambda.min.bic
+    
+    if (isTRUE(path_obj$adjusted)) {
+        fit.min.bic$coefficients <- fit.min.bic$coefficients
+        # In adjusted mode, refitted_models should already be available if it was computed.
+        if (!is.null(path_obj$refitted_models)) {
+            fit.min.bic$refitted_models <- path_obj$refitted_models[[best_idx]]
+            fit.min.bic$adjusted <- TRUE
+        }
+    }
+    class(fit.min.bic) <- "cbSCRIP"
+    
+    list(
+        lambda.min.bic = lambda.min.bic,
+        fit.min.bic = fit.min.bic,
+        bics = bics,
+        deviances = deviances,
+        dfs = dfs,
+        best_idx = best_idx
+    )
 }

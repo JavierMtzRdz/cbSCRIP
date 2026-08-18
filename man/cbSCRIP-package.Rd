@@ -12,6 +12,7 @@ Implements an estimator based on case-base sampling for sparse competing risk pr
 
 Authors:
 \itemize{
+  \item Javier Martinez-Rodriguez \email{javier.mr@stat.ubc.ca}
   \item Nirupama Tamvada
   \item Sahir Bhatnagar
   \item Gabriela V. Cohen Freue \email{gcohen@stat.ubc.ca}

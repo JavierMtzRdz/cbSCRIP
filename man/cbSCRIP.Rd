@@ -19,6 +19,7 @@ cbSCRIP(
   lambda.min.ratio = NULL,
   warm_start = TRUE,
   coeffs = c("adjusted", "original"),
+  optimizer = c("CCD", "FISTA", "SAGA", "SVRG"),
   ...
 )
 }
@@ -50,6 +51,8 @@ cbSCRIP(
 \item{warm_start}{Logical, whether to use warm starts.}
 
 \item{coeffs}{Character, whether to return "adjusted" (refitted) or "original" coefficients.}
+
+\item{optimizer}{The solver to use: one of "CCD", "FISTA", "SAGA" or "SVRG".}
 
 \item{...}{Additional arguments.}
 }

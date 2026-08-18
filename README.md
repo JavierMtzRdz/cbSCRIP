@@ -9,12 +9,12 @@
 
 ## Overview
 
-`cbSCRIP` implements an estimator based on **case-base sampling** for
-sparse competing risk prediction. It uses an elastic-net penalized
-multinomial approach with an offset parameter, enabling both accurate
-prediction and variable selection under competing risks. This approach
-allows for efficient estimation of cause-specific hazards in
-high-dimensional settings.
+`cbSCRIP` implements an estimator based on case-base sampling for sparse
+competing risk prediction. It uses an elastic-net penalized multinomial
+approach with an offset parameter, enabling both accurate prediction and
+variable selection under competing risks. This approach allows for
+efficient estimation of cause-specific hazards in high-dimensional
+settings.
 
 ## Installation
 
@@ -32,6 +32,7 @@ remotes::install_github("JavierMtzRdz/cbSCRIP")
 ``` r
 library(cbSCRIP)
 library(survival)
+#> Warning: package 'survival' was built under R version 4.5.2
 
 # Generate synthetic competing risks data
 set.seed(123)
@@ -47,24 +48,24 @@ fit <- cbSCRIP(
   Surv(ftime, fstatus) ~ .,
   data = train,
   nlambda = 50,
-  fit_fun = MNlogisticCCD,
+  optimizer = "CCD",
   ratio = 20,
-  coeffs = "original" 
+  coeffs = "original"
 )
 #> ℹ Creating case-base dataset...
-#> ℹ Created base series with 3000 samples based on 150 event(s).
-#> ✔ Calculated lambda_max: 0.0618
-#> ℹ Using 50 lambdas. Range: 0.0000618 to 0.0618
+#> ℹ Created base series with 3100 samples based on 155 event(s).
+#> ✔ Calculated lambda_max: 0.046
+#> ℹ Using 50 lambdas. Range: 0.000046 to 0.046
 #> ℹ Fitting model path for 50 lambda values...
 #> ✔ Path fitting complete.
 
-# Summary 
+# Summary
 fit
 #> --- Case-Base Competing Risks Model Path ---
 #> 
 #> Call:
 #> cbSCRIP(formula = Surv(ftime, fstatus) ~ ., data = train, nlambda = 50, 
-#>     ratio = 20, coeffs = "original", fit_fun = MNlogisticCCD)
+#>     ratio = 20, coeffs = "original", optimizer = "CCD")
 #> 
 #> Regularization path fit for 50 lambda values.
 #> Number of non-zero coefficients: from 0 to 20.
@@ -85,19 +86,16 @@ cv_fit <- cv_cbSCRIP(
   nlambda = 50,
   ratio = 20
 )
-#> ℹ Created base series with 3000 samples based on 150 event(s).
-#> ✔ Calculated lambda_max: 0.0603
-#> ℹ Using 50 lambdas. Range: 0.0000603 to 0.0603
+#> ℹ Created base series with 3100 samples based on 155 event(s).
+#> ✔ Calculated lambda_max: 0.0447
+#> ℹ Using 50 lambdas. Range: 0.0000447 to 0.0447
 #> ℹ Starting 3-fold cross-validation...
-#> Warning: package ‘future’ was built under R version 4.5.2
 #> Warning: package ‘purrr’ was built under R version 4.5.2
-#> Warning: package ‘future’ was built under R version 4.5.2
 #> Warning: package ‘purrr’ was built under R version 4.5.2
-#> Warning: package ‘future’ was built under R version 4.5.2
 #> Warning: package ‘purrr’ was built under R version 4.5.2
 #> ✔ Cross-validation complete.
 
-# Summary 
+# Summary
 cv_fit
 #> --- Cross-Validated Case-Base Competing Risks Model ---
 #> 
@@ -108,10 +106,10 @@ cv_fit
 #> Performed 3-fold cross-validation over 50 lambda values.
 #> 
 #> Optimal Lambda Values:
-#>   Lambda with minimum deviance (lambda.min): 0.0055
-#>   Largest lambda within 1 SE of min (lambda.1se): 0.0128
+#>   Lambda with minimum deviance (lambda.min): 0.0082
+#>   Largest lambda within 1 SE of min (lambda.1se): 0.0255
 #> 
-#> The final model (fit.min) was fit using lambda.min and has 14 non-zero coefficients.
+#> The final model (fit) was fit using lambda.1se and has 9 non-zero coefficients.
 
 # Plot
 plot(cv_fit)
@@ -126,11 +124,11 @@ plot(cv_fit)
 - Supports **Lasso** and **Elastic-Net** penalties for variable
   selection in high-dimensional datasets ($p > n$).
 - **Optimizers**:
-  - `MNlogisticCCD`: Cyclical Coordinate Descent (efficient for sparse
+  - "CCD". Cyclical Coordinate Descent (efficient for sparse
     paths).
-  - `MNlogisticSAGAN`: Stochastic Average Gradient (SAGA) with Nesterov
+  - "SAGAN". Stochastic Average Gradient (SAGA) with Nesterov
     acceleration.
-  - `MNlogisticSVRG`: Stochastic Variance Reduced Gradient.
+  - "SVRG". Stochastic Variance Reduced Gradient.
 
 ## License
 

@@ -2,18 +2,22 @@
 % Please edit documentation in R/prediction.R
 \name{predictRisk.penalizedCompRisk}
 \alias{predictRisk.penalizedCompRisk}
-\title{Predict Absolute Risk for a Penalized CompRisk Object}
+\alias{predictRisk.cbSCRIP}
+\title{Predict Absolute Risk for a Penalized Case-Base Competing Risks Model}
 \usage{
 \method{predictRisk}{penalizedCompRisk}(object, newdata, times, cause, ...)
+
+\method{predictRisk}{cbSCRIP}(object, newdata, times, cause, ...)
 }
 \arguments{
-\item{object}{A model object of class \code{penalizedCompRisk}.}
+\item{object}{A fitted model of class \code{penalizedCompRisk} (or \code{cbSCRIP}).}
 
 \item{newdata}{A \code{data.frame} containing the predictor variables.}
 
 \item{times}{A numeric vector of time points at which to predict risk.}
 
-\item{cause}{The specific event type for which to predict the absolute risk.}
+\item{cause}{The event type to predict, given as one of the event codes the
+model was fitted on (for example \code{1} or \code{2}), not a column position.}
 
 \item{...}{Additional arguments passed to other methods.}
 }
@@ -21,6 +25,17 @@
 A matrix of predicted risks with subjects in rows and time points in columns.
 }
 \description{
-This function predicts the absolute risk for a specified cause from a
-\code{penalizedCompRisk} model object.
+Computes the cause-specific cumulative incidence
+\eqn{F_k(t \mid x) = \int_0^t \lambda_k(u \mid x) S(u \mid x) \, du}, where the
+cause-specific hazards implied by the fitted case-base multinomial model are
+\eqn{\lambda_k(t \mid x) = \exp(\alpha_k + \gamma_k \log t + x'\beta_k)} and
+\eqn{S} is the all-cause survival built from every cause. The case-base
+offset is deliberately excluded: it calibrates the base series while fitting
+and is not part of the hazard.
+}
+\details{
+Because \eqn{\lambda_k(t \mid x) = c_k(x) t^{\gamma_k}} is an exact power
+function of time, the cumulative hazard is evaluated in closed form rather
+than by quadrature, which matters when \eqn{\gamma_k \le 0} and the hazard is
+unbounded at the origin. Absolute risk is undefined for \eqn{\gamma_k \le -1}.
 }

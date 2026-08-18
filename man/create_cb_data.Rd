@@ -4,7 +4,7 @@
 \alias{create_cb_data}
 \title{Create a Case-Base Dataset for Competing Risks}
 \usage{
-create_cb_data(formula, data, ratio = 20, ratio_event = "all")
+create_cb_data(formula, data, ratio = 50, ratio_event = "all")
 }
 \arguments{
 \item{formula}{A survival formula, e.g., \code{Surv(time, event) ~ cov1 + cov2}.}
@@ -19,7 +19,8 @@ the total number of all non-censored events.}
 }
 \value{
 A list containing the components of the case-base dataset: \code{time},
-\code{event}, \code{covariates}, and \code{offset}.
+\code{event}, \code{covariates}, \code{offset}, and \code{id}, the row of \code{data} each
+case-base row was drawn from.
 }
 \description{
 Transforms a survival dataset into the case-base format required for fitting

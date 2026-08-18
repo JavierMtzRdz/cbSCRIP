@@ -16,7 +16,7 @@ MNlogisticSVRG(
   lambda3 = 0,
   pos = FALSE,
   tolerance = 1e-04,
-  maxit = 500,
+  maxit = 1000,
   ncores = -1,
   lr_adj = 1,
   learning_rate = 1,
@@ -29,7 +29,8 @@ MNlogisticSVRG(
   N_own_variables = NULL,
   param_start = NULL,
   verbose = FALSE,
-  save_history = FALSE
+  save_history = FALSE,
+  lam1_prev = 0
 )
 }
 \arguments{
@@ -82,6 +83,9 @@ MNlogisticSVRG(
 \item{verbose}{Verbosity.}
 
 \item{save_history}{Save history.}
+
+\item{lam1_prev}{Previous \code{lambda1} on the path, used by the sequential
+strong rules to pre-screen the active set. Ignored on a cold start.}
 }
 \value{
 A list with model results.

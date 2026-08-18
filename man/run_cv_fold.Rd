@@ -14,6 +14,7 @@ run_cv_fold(
   n_unpenalized = 2,
   warm_start = TRUE,
   update_f = NULL,
+  optimizer = "CCD",
   ...
 )
 }
@@ -35,6 +36,8 @@ run_cv_fold(
 \item{warm_start}{Logical, whether to use warm starts.}
 
 \item{update_f}{A progress update function.}
+
+\item{optimizer}{The solver to use: one of "CCD", "FISTA", "SAGA" or "SVRG".}
 
 \item{...}{Additional arguments for \code{fit_cb_model}.}
 }

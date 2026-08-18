@@ -4,3 +4,4 @@
 ^.gitignore$
 ^cran-comments\.md$
 ^misc$
+^benchmark$
